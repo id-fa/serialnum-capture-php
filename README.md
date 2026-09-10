@@ -110,6 +110,24 @@ PHP built-in server は HTTPS 非対応・同時接続が弱いため、あく�
 
 送信ボタンは「スタックが1件以上」かつ「撮影済み」のときだけ有効になります。
 
+### 写真を保存しない運用（写真保存なしモード）
+
+`SAVE.MODE` を `'text'` にすると、写真を保存せず、スタックした文字列だけを保存します。
+
+```php
+// config/default.php または config/<プロジェクトID>.php
+'SAVE' => [
+    'MODE'        => 'text',   // 写真を保存しない
+    'TEXT_FORMAT' => 'json',   // 'json' または 'txt'
+],
+```
+
+- 保存先は `storage/<プロジェクトID>/<タイムスタンプ>.json`（または `.txt`）
+- スタックが1件以上あれば送信できます
+- カメラ・OCR・バーコード読み取りはそのまま使えるので、読み取りの手順は変わりません
+  （シャッターは静止画に対して OCR をかけ直すために残してあります）
+- このモードのときは、画面右上に「写真なし」バッジが出ます
+
 ---
 
 ## 5. 設定
@@ -145,6 +163,9 @@ config/<ID>.php ────┴→ ┬→ 画面側（api/config.js.php が Java
 | `BARCODE.ENABLED` | 1次元バーコード読み取りの有効/無効 |
 | `BARCODE.FORMATS` | CODE_128 / CODE_39 / EAN_13 など |
 | `QR.ENABLED` | QRコード読み取りの有効/無効 |
+| `SAVE.MODE` | `image`（既定・撮影画像を保存）/ `text`（写真を保存せず文字列だけ保存） |
+| `SAVE.TEXT_FORMAT` | `MODE = 'text'` のときの形式。`json`（備考も残る）/ `txt`（1行1文字列） |
+| `SAVE.TIMESTAMP_FORMAT` | `MODE = 'text'` のときのファイル名。PHP の `date()` 書式。既定 `Ymd-His` |
 | `CAPTURE.CROP_TO_VIEW` | `true`（既定）でカメラ読み取り部に写っている範囲だけを保存。`false` で映像全体 |
 | `CAPTURE.MAX_EDGE` / `JPEG_QUALITY` | 送信する画像のサイズ・画質 |
 | `UI.VIBRATE_MS` / `UI.BEEP` | 検出時のバイブ・ビープ |
@@ -346,6 +367,37 @@ storage/
   "created_at": "2026-09-09T10:39:00+09:00"
 }
 ```
+
+### 写真保存なしモード（`SAVE.MODE = 'text'`）
+
+写真は保存されず、スタックした文字列だけがタイムスタンプ名のファイルになります。
+
+```
+storage/
+└── PRJ-0001/
+    ├── 20260910-140019.json     TEXT_FORMAT = 'json' のとき
+    └── 20260910-140032.txt      TEXT_FORMAT = 'txt' のとき
+```
+
+`*.json` の中身:
+
+```json
+{
+  "project_id": "PRJ-0001",
+  "strings": ["AB123", "CD456"],
+  "note": "検品担当：山田",
+  "created_at": "2026-09-10T14:00:19+09:00"
+}
+```
+
+`*.txt` の中身（1行1文字列。**備考は保存されません**）:
+
+```
+AB123
+CD456
+```
+
+同じ秒に続けて送信した場合は `20260910-140025_2.json` のように連番が付きます。
 
 ---
 

@@ -29,6 +29,8 @@ $projectId = (string)$config['PROJECT_ID'];
     <select class="project-select" id="projectSelect" hidden aria-label="プロジェクトを切り替え"></select>
   </div>
   <div class="header-status">
+    <!-- 写真保存なしモード（SAVE.MODE = 'text'）のときだけ表示される -->
+    <span class="badge" id="saveModeBadge" hidden>写真なし</span>
     <span class="badge" id="engineBadge">準備中</span>
   </div>
 </header>
@@ -96,7 +98,7 @@ $projectId = (string)$config['PROJECT_ID'];
     <ul class="stack-list" id="stackList"></ul>
     <p class="empty-note" id="stackEmpty">スタックは空です</p>
     <div class="filename-preview" id="filenamePreview" hidden>
-      <span class="filename-preview__label">保存ファイル名</span>
+      <span class="filename-preview__label" id="filenameLabel">保存ファイル名</span>
       <code class="filename-preview__value" id="filenameValue"></code>
     </div>
   </section>

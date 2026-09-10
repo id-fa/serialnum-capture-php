@@ -88,7 +88,7 @@ body {
   background-repeat: no-repeat;
 }
 .project-select:focus { outline: none; border-color: var(--accent); }
-.header-status { flex: none; }
+.header-status { flex: none; display: flex; align-items: center; gap: 6px; }
 
 .badge {
   display: inline-block;

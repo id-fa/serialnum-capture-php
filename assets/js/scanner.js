@@ -8,6 +8,9 @@
 
   const log = (...a) => { if (CONFIG.DEBUG) console.log('[scanner]', ...a); };
 
+  /** 撮影画像を保存するモードか（'text' は写真保存なしモード） */
+  const saveImageEnabled = () => !CONFIG.SAVE || CONFIG.SAVE.MODE !== 'text';
+
   /* ---------- 小物 ---------- */
 
   /** OCRモードに応じたホワイトリスト文字列（EXTRA_CHARS を含む） */
@@ -679,8 +682,12 @@
       this.stopLoops();
       this.setMode('still');
 
-      // 送信用 JPEG を作成
-      this.capturedBlob = await this._makeJpegBlob(this.fullCanvas);
+      // 送信用 JPEG を作成。
+      // 写真保存なしモード（CONFIG.SAVE.MODE = 'text'）では画像を送らないので作らない。
+      // このとき静止画は表示と静止画OCRのためだけに使う。
+      this.capturedBlob = saveImageEnabled()
+        ? await this._makeJpegBlob(this.fullCanvas)
+        : null;
 
       // 静止画に対して1回だけ認識
       const results = [];

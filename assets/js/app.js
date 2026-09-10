@@ -13,6 +13,7 @@
     projectLabel: $('projectLabel'),
     projectSelect: $('projectSelect'),
     engineBadge: $('engineBadge'),
+    saveModeBadge: $('saveModeBadge'),
 
     stage: $('cameraStage'),
     video: $('video'),
@@ -36,6 +37,7 @@
     stackCount: $('stackCount'),
     addManualBtn: $('addManualBtn'),
     filenamePreview: $('filenamePreview'),
+    filenameLabel: $('filenameLabel'),
     filenameValue: $('filenameValue'),
 
     noteInput: $('noteInput'),
@@ -59,6 +61,15 @@
     captured: false,
     sending: false,
   };
+
+  /* ---------- 保存のしかた（config の SAVE） ----------
+     'image' … 従来どおり撮影画像を保存する
+     'text'  … 写真保存なしモード。撮影せずに送信でき、
+               スタック文字列だけが <タイムスタンプ>.json / .txt に保存される。
+               カメラ・OCR はそのまま使えるので、読み取りの手順は変わらない。 */
+  const SAVE = CONFIG.SAVE || {};
+  const TEXT_ONLY = SAVE.MODE === 'text';
+  const TEXT_EXT = SAVE.TEXT_FORMAT === 'txt' ? 'txt' : 'json';
 
   let scanner = null;
   let stack = null;
@@ -231,11 +242,16 @@
     el.stackEmpty.hidden = texts.length > 0;
 
     if (texts.length) {
-      const name = texts
-        .map(sanitizeForFilename)
-        .filter(Boolean)
-        .join(CONFIG.FILENAME.SEPARATOR);
-      el.filenameValue.textContent = (name || 'noname') + '.jpg';
+      if (TEXT_ONLY) {
+        // 写真保存なしモードのファイル名は送信時のタイムスタンプ（サーバー側で決まる）
+        el.filenameValue.textContent = '<送信時刻>.' + TEXT_EXT;
+      } else {
+        const name = texts
+          .map(sanitizeForFilename)
+          .filter(Boolean)
+          .join(CONFIG.FILENAME.SEPARATOR);
+        el.filenameValue.textContent = (name || 'noname') + '.jpg';
+      }
       el.filenamePreview.hidden = false;
     } else {
       el.filenamePreview.hidden = true;
@@ -398,7 +414,8 @@
      ============================================================ */
 
   function updateSubmitState() {
-    const ok = !state.sending && stack.length > 0 && state.captured;
+    // 写真保存なしモードでは撮影を待たない（スタックが1件以上あれば送信できる）
+    const ok = !state.sending && stack.length > 0 && (TEXT_ONLY || state.captured);
     el.submitBtn.disabled = !ok;
   }
 
@@ -407,16 +424,19 @@
     const texts = stack.getTexts();
 
     if (!texts.length) return toast('スタックが空です', 'error');
-    if (!state.captured) return toast('シャッターで撮影してください', 'error');
-
-    const blob = scanner.getCapturedBlob();
-    if (!blob) return toast('撮影画像がありません', 'error');
 
     const form = new FormData();
     form.append('project_id', CONFIG.PROJECT_ID);
     form.append('strings', JSON.stringify(texts));
     form.append('note', el.noteInput.value || '');
-    form.append('image', blob, 'capture.jpg');
+
+    // 写真保存なしモードでは画像を送らない（サーバー側も受け取らない）
+    if (!TEXT_ONLY) {
+      if (!state.captured) return toast('シャッターで撮影してください', 'error');
+      const blob = scanner.getCapturedBlob();
+      if (!blob) return toast('撮影画像がありません', 'error');
+      form.append('image', blob, 'capture.jpg');
+    }
 
     state.sending = true;
     updateSubmitState();
@@ -594,6 +614,13 @@
   async function init() {
     setupProjectSwitcher();
     el.noteInput.placeholder = CONFIG.UI.NOTE_PLACEHOLDER;
+
+    // 写真保存なしモードは見た目で分かるようにする
+    // （シャッターは静止画OCR用に残るので、押せること自体は変えない）
+    if (TEXT_ONLY) {
+      el.saveModeBadge.hidden = false;
+      el.filenameLabel.textContent = '保存ファイル名（写真は保存しません）';
+    }
     updateOcrChip();
     updateModeChip();
     el.shutterBtn.disabled = true;

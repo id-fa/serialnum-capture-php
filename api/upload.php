@@ -6,10 +6,11 @@
  *   project_id : 保存フォルダ名になるプロジェクトID
  *   strings    : スタック文字列の JSON 配列 (例: ["ABC123","DEF456"])
  *   note       : 備考（任意）
- *   image      : 撮影画像（JPEG）
+ *   image      : 撮影画像（JPEG）※写真保存なしモードでは受け取らない
  *
- * 保存先
- *   storage/<project_id>/<strings をハイフン連結>.jpg
+ * 保存先（設定の SAVE.MODE で決まる）
+ *   'image' : storage/<project_id>/<strings をハイフン連結>.jpg
+ *   'text'  : storage/<project_id>/<タイムスタンプ>.json （または .txt）
  */
 
 declare(strict_types=1);
@@ -29,6 +30,14 @@ require __DIR__ . '/../config/loader.php';
 $ALL      = inspection_load_config(isset($_POST['project_id']) ? (string)$_POST['project_id'] : null);
 $CONFIG   = $ALL['SERVER'];
 $FILENAME = $ALL['FILENAME'];
+
+// 保存のしかた（画面側と共通の設定）。
+//   'image' : 撮影画像を保存する（従来）
+//   'text'  : 写真を保存せず、スタック文字列だけをテキストで保存する
+$SAVE        = is_array($ALL['SAVE'] ?? null) ? $ALL['SAVE'] : [];
+$saveMode    = (($SAVE['MODE'] ?? 'image') === 'text') ? 'text' : 'image';
+$textFormat  = (($SAVE['TEXT_FORMAT'] ?? 'json') === 'txt') ? 'txt' : 'json';
+$stampFormat = (string)($SAVE['TIMESTAMP_FORMAT'] ?? 'Ymd-His');
 
 /* ------------------------------------------------------------
    ヘルパ
@@ -71,6 +80,41 @@ function sanitize_token(string $s, string $allowedChars): string
     // 先頭のドットやハイフンは隠しファイル・オプション誤認の元なので落とす
     $s = ltrim($s, '.-');
     return $s;
+}
+
+/**
+ * 保存先のパスを決める。同名ファイルがあるときの動作は SERVER.ON_CONFLICT に従う。
+ *
+ * @return array{0: string, 1: string} [ファイル名, フルパス]
+ */
+function resolve_save_path(string $dir, string $base, string $ext, string $onConflict): array
+{
+    $filename = $base . '.' . $ext;
+    $path = $dir . DIRECTORY_SEPARATOR . $filename;
+
+    if (!file_exists($path)) {
+        return [$filename, $path];
+    }
+
+    switch ($onConflict) {
+        case 'overwrite':
+            return [$filename, $path];
+
+        case 'timestamp':
+            $filename = $base . '_' . date('Ymd-His') . '.' . $ext;
+            return [$filename, $dir . DIRECTORY_SEPARATOR . $filename];
+
+        case 'suffix':
+        default:
+            for ($i = 2; $i <= 999; $i++) {
+                $candidate = $base . '_' . $i . '.' . $ext;
+                $p = $dir . DIRECTORY_SEPARATOR . $candidate;
+                if (!file_exists($p)) {
+                    return [$candidate, $p];
+                }
+            }
+            fail(409, '同名ファイルが多すぎます: ' . $base);   // ここで終了する
+    }
 }
 
 /** 予期せぬエラーも JSON で返す */
@@ -125,33 +169,39 @@ if (!$strings) {
 }
 
 // --- 画像 ---
-if (!isset($_FILES['image'])) {
-    fail(400, '画像が送信されていません');
-}
-$file = $_FILES['image'];
-if (!is_array($file) || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
-    fail(400, '画像のアップロードに失敗しました (code: ' . ($file['error'] ?? '?') . ')');
-}
-if (!is_uploaded_file($file['tmp_name'])) {
-    fail(400, '不正なアップロードです');
-}
-if ((int)$file['size'] <= 0) {
-    fail(400, '画像が空です');
-}
-if ((int)$file['size'] > (int)$CONFIG['MAX_IMAGE_BYTES']) {
-    fail(413, '画像サイズが大きすぎます');
-}
+// 写真保存なしモードでは画像を受け取らない。画面側も送ってこないが、
+// 送られてきた場合も保存しない（どちらのモードで動くかはサーバー側の設定が正）。
+$ext  = null;
+$file = null;
+if ($saveMode === 'image') {
+    if (!isset($_FILES['image'])) {
+        fail(400, '画像が送信されていません');
+    }
+    $file = $_FILES['image'];
+    if (!is_array($file) || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+        fail(400, '画像のアップロードに失敗しました (code: ' . ($file['error'] ?? '?') . ')');
+    }
+    if (!is_uploaded_file($file['tmp_name'])) {
+        fail(400, '不正なアップロードです');
+    }
+    if ((int)$file['size'] <= 0) {
+        fail(400, '画像が空です');
+    }
+    if ((int)$file['size'] > (int)$CONFIG['MAX_IMAGE_BYTES']) {
+        fail(413, '画像サイズが大きすぎます');
+    }
 
-// 拡張子は申告ではなく実データから判定する
-$info = @getimagesize($file['tmp_name']);
-if ($info === false) {
-    fail(400, '画像として読み取れません');
-}
-$mime = $info['mime'] ?? '';
-if (!isset($CONFIG['ALLOWED_MIMES'][$mime])) {
-    fail(415, '対応していない画像形式です: ' . $mime);
-}
-$ext = $CONFIG['ALLOWED_MIMES'][$mime];
+    // 拡張子は申告ではなく実データから判定する
+    $info = @getimagesize($file['tmp_name']);
+    if ($info === false) {
+        fail(400, '画像として読み取れません');
+    }
+    $mime = $info['mime'] ?? '';
+    if (!isset($CONFIG['ALLOWED_MIMES'][$mime])) {
+        fail(415, '対応していない画像形式です: ' . $mime);
+    }
+    $ext = $CONFIG['ALLOWED_MIMES'][$mime];
+}   // ここまで画像モードだけの検証
 
 // --- 備考 ---
 $note = to_utf8((string)($_POST['note'] ?? ''));
@@ -171,57 +221,81 @@ if (!is_writable($dir)) {
     fail(500, '保存フォルダに書き込めません: ' . $projectId);
 }
 
-// スタック文字列を連結してファイル名にする（区切り文字も config.php で決まる）
-$parts = array_values(array_filter(
-    array_map(static fn($v) => sanitize_token((string)$v, $allowedChars), $strings),
-    static fn($s) => $s !== ''
-));
-$base = implode((string)$FILENAME['SEPARATOR'], $parts);
-if ($base === '') {
-    $base = 'noname-' . date('Ymd-His');
-}
+$onConflict = (string)$CONFIG['ON_CONFLICT'];
 
-// 長すぎる場合は切り詰めて衝突しないようハッシュを付ける
-$maxLen = (int)$FILENAME['MAX_LENGTH'];
-if (strlen($base) > $maxLen) {
-    $hash = substr(md5($base), 0, 8);
-    $base = substr($base, 0, $maxLen - 9) . '_' . $hash;
-}
+if ($saveMode === 'text') {
+    // 写真保存なしモードのファイル名はタイムスタンプ。
+    // 書式は設定から来るので、ファイル名に使えない文字は必ず落としておく。
+    $base = sanitize_token(date($stampFormat), $allowedChars);
+    if ($base === '') {
+        $base = date('Ymd-His');
+    }
+    $ext = $textFormat;
 
-// 同名ファイルの扱い
-$filename = $base . '.' . $ext;
-$path = $dir . DIRECTORY_SEPARATOR . $filename;
+    // 名前がすでにタイムスタンプなので 'timestamp' は連番と同じ扱いにする
+    // （同じ日時を二重に付けても区別できない）。
+    if ($onConflict === 'timestamp') {
+        $onConflict = 'suffix';
+    }
+} else {
+    // スタック文字列を連結してファイル名にする（区切り文字も設定で決まる）
+    $parts = array_values(array_filter(
+        array_map(static fn($v) => sanitize_token((string)$v, $allowedChars), $strings),
+        static fn($s) => $s !== ''
+    ));
+    $base = implode((string)$FILENAME['SEPARATOR'], $parts);
+    if ($base === '') {
+        $base = 'noname-' . date('Ymd-His');
+    }
 
-if (file_exists($path)) {
-    switch ($CONFIG['ON_CONFLICT']) {
-        case 'overwrite':
-            break;
-
-        case 'timestamp':
-            $filename = $base . '_' . date('Ymd-His') . '.' . $ext;
-            $path = $dir . DIRECTORY_SEPARATOR . $filename;
-            break;
-
-        case 'suffix':
-        default:
-            for ($i = 2; $i <= 999; $i++) {
-                $candidate = $base . '_' . $i . '.' . $ext;
-                $p = $dir . DIRECTORY_SEPARATOR . $candidate;
-                if (!file_exists($p)) {
-                    $filename = $candidate;
-                    $path = $p;
-                    break;
-                }
-            }
-            if (file_exists($path)) {
-                fail(409, '同名ファイルが多すぎます: ' . $base);
-            }
-            break;
+    // 長すぎる場合は切り詰めて衝突しないようハッシュを付ける
+    $maxLen = (int)$FILENAME['MAX_LENGTH'];
+    if (strlen($base) > $maxLen) {
+        $hash = substr(md5($base), 0, 8);
+        $base = substr($base, 0, $maxLen - 9) . '_' . $hash;
     }
 }
 
+[$filename, $path] = resolve_save_path($dir, $base, (string)$ext, $onConflict);
+
 /* ------------------------------------------------------------
-   保存
+   保存（写真保存なしモード）
+   スタック文字列だけを <タイムスタンプ>.json / .txt に書き出す。
+   ------------------------------------------------------------ */
+
+if ($saveMode === 'text') {
+    if ($textFormat === 'txt') {
+        // 1行1文字列。メモ帳でそのまま開けるよう改行は CRLF にする。
+        // ※ この形式には備考が入らない（備考も残すなら TEXT_FORMAT を 'json' にする）
+        $body = implode("\r\n", $strings) . "\r\n";
+    } else {
+        $body = json_encode([
+            'project_id' => $projectId,
+            'strings'    => $strings,
+            'note'       => $note,
+            'created_at' => date('c'),
+        ], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT) . "\n";
+    }
+
+    if (@file_put_contents($path, $body) === false) {
+        fail(500, '文字列の保存に失敗しました');
+    }
+    @chmod($path, 0666 & ~umask());
+
+    respond(200, [
+        'ok'         => true,
+        'mode'       => 'text',
+        'project_id' => $projectId,
+        'filename'   => $filename,
+        'path'       => 'storage/' . $projectId . '/' . $filename,
+        'strings'    => $strings,
+        'bytes'      => filesize($path),
+        'saved_meta' => false,
+    ]);
+}
+
+/* ------------------------------------------------------------
+   保存（画像モード）
    ------------------------------------------------------------ */
 
 if (!@move_uploaded_file($file['tmp_name'], $path)) {
@@ -247,6 +321,7 @@ if (!empty($CONFIG['SAVE_META'])) {
 
 respond(200, [
     'ok'         => true,
+    'mode'       => 'image',
     'project_id' => $projectId,
     'filename'   => $filename,
     'path'       => 'storage/' . $projectId . '/' . $filename,

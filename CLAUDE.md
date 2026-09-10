@@ -38,7 +38,7 @@ URL は起動のたびに変わるので、固定URLが必要になったら nam
 | `assets/js/app.js` | 画面全体の制御・候補リスト・送信・クリア。他モジュールの接着役 |
 | `assets/css/style.css` | 全スタイル。CSS変数は `:root` に集約 |
 | `api/upload.php` | アップロード受け口。`config.php` の `SERVER` / `FILENAME` を読む |
-| `storage/` | 保存先。`<project_id>/<文字列をハイフン連結>.jpg` |
+| `storage/` | 保存先。`<project_id>/<文字列をハイフン連結>.jpg`（写真保存なしモードでは `<タイムスタンプ>.json` / `.txt`） |
 
 ## 変更時に必ず守ること
 
@@ -95,6 +95,29 @@ config/<ID>.php ────┴→ loader.php ─┬→ api/config.js.php → wi
 - 切り替え時は `leavingIntentionally` を立ててから遷移する。
   `beforeunload` は `addEventListener` で登録しているため
   `window.onbeforeunload = null` では解除できない
+
+### 1-3. 写真保存なしモード（`SAVE.MODE`）
+
+`config` の `SAVE.MODE` で保存するものを切り替える。**画面側と保存側の両方がこの値を見る。**
+
+| 値 | 保存されるもの | ファイル名 |
+|---|---|---|
+| `'image'`（既定） | 撮影画像 | スタック文字列を `FILENAME.SEPARATOR` で連結 |
+| `'text'` | スタック文字列だけ（写真は保存しない） | `SAVE.TIMESTAMP_FORMAT` によるタイムスタンプ + `.json` / `.txt` |
+
+- **どちらのモードで動くかはサーバー側の設定が正**。`api/upload.php` は自分の設定を見て
+  判断し、`'text'` のときは画像を受け取らない（送られてきても保存しない）。
+  画面側は送信に撮影が必要かどうかを切り替えるためだけに `CONFIG.SAVE` を見る
+- `'text'` では **`state.captured` を送信の条件にしない**（`app.js` の `updateSubmitState`）。
+  シャッターは静止画OCRのために残してあるので、押せること自体は変えないこと
+- `'text'` では `scanner.capture()` が送信用 JPEG を作らない（`capturedBlob` は null）。
+  静止画は表示と静止画OCRのためだけに使う
+- ファイル名は `date(SAVE.TIMESTAMP_FORMAT)` の結果を **`sanitize_token()` に通してから**使う。
+  書式に `/` などが入っても保存先の外に出られないようにするため。**この処理を外さないこと**
+- 同名時の扱いは `resolve_save_path()` に集約した（画像モードと共通）。
+  ただし `'text'` では `ON_CONFLICT = 'timestamp'` を連番に読み替える
+  （名前が既にタイムスタンプなので、同じ日時を二重に付けても区別できない）
+- `TEXT_FORMAT = 'txt'` には**備考が入らない**（1行1文字列だけ）。備考も残すなら `'json'` にする
 
 ### 2. ROI の座標変換を壊さない
 
@@ -292,7 +315,14 @@ curl -sS -X POST http://127.0.0.1:8099/api/upload.php \
 
 確認済みのケース: 正常系 / 同名衝突（`_2` 付与）/ パストラバーサル（`../../etc` → `etc` に無害化）/
 非画像ファイルの拒否 / 超長ファイル名の切り詰め＋ハッシュ / 日本語備考の UTF-8 保存。
-**テストで作った `storage/` 配下のデータは必ず消してから終わること。**
+
+写真保存なしモード（`SAVE.MODE = 'text'`）は、検証用の `config/<ID>.php` を一時的に作って
+`-F 'image=@...'` を付けずに POST すれば確認できる（2026-09-10 に確認済み:
+json/txt の書き出し / 同秒での連番 / 画像を送っても保存しない / `TIMESTAMP_FORMAT` に
+`/` を入れてもファイル名から除去される / 画像モードが従来どおり動く）。
+
+**テストで作った `storage/` 配下のデータと、検証用に作った `config/<ID>.php` は
+必ず消してから終わること。**
 
 Windows の Git Bash から `curl -F` を使う場合、`/tmp/...` のパスは Windows 版 curl が
 解決できずリクエスト自体が飛ばない。絶対パス（`C:/...`）か相対パスで指定する。
