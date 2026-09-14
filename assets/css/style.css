@@ -245,20 +245,24 @@ body {
 @keyframes flash { from { opacity: .9; } to { opacity: 0; } }
 
 /* ---------- カメラ操作 ---------- */
+/* ライト / シャッター / カメラ停止 の3列。
+   シャッターが大きい（160px）ので、iPhone の 390px 幅では左右の列に余裕がない。
+   ラベルは折り返させず、左右余白と列間隔を詰めて収めている。 */
 .camera-actions {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  gap: 8px;
-  padding: 10px 4px 2px;
+  gap: 4px;
+  padding: 10px 0 2px;
 }
+.camera-actions .btn--ghost { white-space: nowrap; padding: 0 8px; gap: 4px; }
 .camera-actions .btn--ghost:first-child { justify-self: start; }
 .camera-actions .btn--ghost:last-child  { justify-self: end; }
 
 /* 横長のピル型。片手・手袋でも押しやすいよう横幅を広く取っている */
 .shutter {
   position: relative;
-  width: 128px; height: 58px;
+  width: 160px; height: 100px;
   padding: 0; border: none; background: none;
   cursor: pointer;
 }
