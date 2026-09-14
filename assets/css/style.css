@@ -465,7 +465,7 @@ body {
   overflow-wrap: anywhere;
 }
 .toast.is-sticky::after {
-  content: 'タップで閉じる';
+  content: attr(data-hint);
   display: block;
   margin-top: 4px;
   font-size: 11px;

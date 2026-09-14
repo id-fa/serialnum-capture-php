@@ -169,6 +169,7 @@ config/<ID>.php ────┴→ ┬→ 画面側（api/config.js.php が Java
 | `CAPTURE.CROP_TO_VIEW` | `true`（既定）でカメラ読み取り部に写っている範囲だけを保存。`false` で映像全体 |
 | `CAPTURE.MAX_EDGE` / `JPEG_QUALITY` | 送信する画像のサイズ・画質 |
 | `UI.VIBRATE_MS` / `UI.BEEP` | 検出時のバイブ・ビープ |
+| `UI.AUTO_CLEAR_AFTER_SAVE` | `true`（既定）で、送信完了トーストをタップして閉じたときに確認なしでスタックと読み取り結果をクリア（備考は残る）。`false` で手動クリアのみ |
 | `DEBUG` | コンソールに詳細ログを出す |
 
 #### `OCR.PATTERN` を複数登録する
@@ -421,6 +422,8 @@ CD456
   削除する場合は `index.html` の `addManualBtn` と `app.js` の該当リスナーを消してください。
 - **ライトボタン**: 端末がトーチ対応の場合のみ表示されます。
 - **検出時のビープ / バイブ**: `config.php` の `UI.BEEP` / `UI.VIBRATE_MS` でオフにできます。
+- **送信完了トーストを閉じたら自動クリア**: 「保存しました」のトーストはタップするまで消えず、
+  閉じると確認なしでクリアされます。`UI.AUTO_CLEAR_AFTER_SAVE` を `false` にすると閉じるだけになります。
 
 ---
 

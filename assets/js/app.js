@@ -82,20 +82,30 @@
      ユーティリティ
      ============================================================ */
 
+  /** sticky トーストをタップで閉じたときに呼ぶ処理（次のトーストが出たら破棄） */
+  let toastOnClose = null;
+
   /**
    * トースト表示。
    * @param {string} message
    * @param {'ok'|'error'|undefined} kind
-   * @param {{sticky?: boolean}} [opts] sticky: true なら自動で消えず、タップで閉じる
-   *   （送信完了の通知に使う。次のトーストが出れば置き換わる）
+   * @param {{sticky?: boolean, hint?: string, onClose?: Function}} [opts]
+   *   sticky: true なら自動で消えず、タップで閉じる（送信完了の通知に使う。次のトーストが出れば置き換わる）
+   *   hint: sticky のとき本文の下に出す案内（既定「タップで閉じる」）
+   *   onClose: sticky をタップで閉じたときに呼ぶ。別のトーストに置き換わった場合は呼ばれない
    */
   function toast(message, kind, opts) {
     clearTimeout(toastTimer);
+    toastOnClose = null;
     const sticky = !!(opts && opts.sticky);
     el.toast.textContent = message;
     el.toast.className = 'toast' + (kind ? ' is-' + kind : '') + (sticky ? ' is-sticky' : '');
+    el.toast.dataset.hint = (opts && opts.hint) || 'タップで閉じる';
     el.toast.hidden = false;
-    if (sticky) return;
+    if (sticky) {
+      toastOnClose = (opts && opts.onClose) || null;
+      return;
+    }
     toastTimer = setTimeout(() => {
       el.toast.hidden = true;
     }, kind === 'error' ? 4000 : 2200);
@@ -105,6 +115,9 @@
   el.toast.addEventListener('click', () => {
     clearTimeout(toastTimer);
     el.toast.hidden = true;
+    const fn = toastOnClose;
+    toastOnClose = null;
+    if (fn) fn();
   });
 
   function setBadge(text, kind) {
@@ -499,8 +512,14 @@
         throw new Error(data.error || 'HTTP ' + res.status);
       }
 
-      // 送信完了は見落とさないよう、タップするまで消さない
-      toast('保存しました: ' + data.filename, 'ok', { sticky: true });
+      // 送信完了は見落とさないよう、タップするまで消さない。
+      // UI.AUTO_CLEAR_AFTER_SAVE が有効なら、閉じたときに確認なしでクリアする
+      const autoClear = !!(CONFIG.UI && CONFIG.UI.AUTO_CLEAR_AFTER_SAVE);
+      toast('保存しました: ' + data.filename, 'ok', {
+        sticky: true,
+        hint: autoClear ? 'タップで閉じてクリア' : 'タップで閉じる',
+        onClose: autoClear ? clearAll : null,
+      });
     } catch (e) {
       console.error(e);
       const msg = e.name === 'AbortError' ? '送信がタイムアウトしました' : e.message;
@@ -513,11 +532,8 @@
     }
   });
 
-  /** クリア（備考は残す） */
-  el.clearBtn.addEventListener('click', async () => {
-    if (stack.length && !window.confirm('スタックと読み取り結果をクリアします。よろしいですか？')) {
-      return;
-    }
+  /** クリア（備考は残す）。確認は呼び出し側で行う */
+  async function clearAll() {
     stack.clear();
     state.candidates.clear();
     renderCandidates();
@@ -531,6 +547,13 @@
     updateModeChip();
     updateSubmitState();
     toast('クリアしました');
+  }
+
+  el.clearBtn.addEventListener('click', () => {
+    if (stack.length && !window.confirm('スタックと読み取り結果をクリアします。よろしいですか？')) {
+      return;
+    }
+    clearAll();
   });
 
 
