@@ -278,10 +278,12 @@ body {
   transition: transform .12s, background .2s, border-radius .2s;
 }
 .shutter:active .shutter__core { transform: scale(.88); }
+/* 撮影後は角丸の四角。外周が楕円（半径 50px）なので、角が外周に掛からないよう
+   inset と border-radius を合わせて決めている（160x100 のときの目安: inset 16 / radius 14） */
 .shutter.is-still .shutter__core {
   background: var(--warn);
-  border-radius: 8px;
-  inset: 14px;
+  border-radius: 14px;
+  inset: 16px;
 }
 .shutter:disabled { opacity: .35; }
 
