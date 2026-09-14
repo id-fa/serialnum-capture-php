@@ -361,6 +361,32 @@
     else startCamera();
   });
 
+  /**
+   * 静止画を捨ててリアルタイム読み取りに戻す。
+   * iPhone Safari では送信後のクリアで映像が静止したままになることがあるため、
+   * scanner 側で映像の更新を確認し、復旧できなければカメラを再起動する
+   * （「カメラ停止 → カメラ開始」で直る、という手動対処を自動化したもの）。
+   */
+  async function backToLive() {
+    if (!state.cameraOn) return;
+    state.captured = false;
+    el.shutterBtn.classList.remove('is-still');
+    setBadge('読み取り中', 'ready');
+    updateModeChip();
+    updateSubmitState();
+
+    const ok = await scanner.resumeLive();
+    if (!ok) await restartCamera();
+  }
+
+  /** 映像が止まったままのときの最終手段: カメラを止めて開始し直す */
+  async function restartCamera() {
+    console.warn('camera video frozen; restarting camera');
+    stopCamera();
+    await startCamera();
+    if (state.cameraOn) toast('カメラを再起動しました');
+  }
+
   el.torchBtn.addEventListener('click', async () => {
     const on = await scanner.toggleTorch();
     el.torchBtn.classList.toggle('is-active', on);
@@ -373,12 +399,7 @@
 
     // 静止状態でもう一度押したらリアルタイムに戻る（撮り直し）
     if (state.captured) {
-      scanner.resumeLive();
-      state.captured = false;
-      el.shutterBtn.classList.remove('is-still');
-      setBadge('読み取り中', 'ready');
-      updateModeChip();
-      updateSubmitState();
+      await backToLive();
       return;
     }
 
@@ -477,7 +498,7 @@
   });
 
   /** クリア（備考は残す） */
-  el.clearBtn.addEventListener('click', () => {
+  el.clearBtn.addEventListener('click', async () => {
     if (stack.length && !window.confirm('スタックと読み取り結果をクリアします。よろしいですか？')) {
       return;
     }
@@ -488,10 +509,7 @@
     if (scanner) {
       scanner.resetDetections();
       if (state.cameraOn && state.captured) {
-        scanner.resumeLive();
-        state.captured = false;
-        el.shutterBtn.classList.remove('is-still');
-        setBadge('読み取り中', 'ready');
+        await backToLive();
       }
     }
     updateModeChip();
@@ -712,11 +730,17 @@
     window.addEventListener('resize', relayout);
     window.addEventListener('orientationchange', () => setTimeout(relayout, 300));
 
-    // バックグラウンドに回ったら認識ループを止める
-    document.addEventListener('visibilitychange', () => {
+    // バックグラウンドに回ったら認識ループを止める。
+    // 復帰時は映像が止まっていないか確認し、止まっていればカメラを再起動する
+    document.addEventListener('visibilitychange', async () => {
       if (!state.cameraOn) return;
-      if (document.hidden) scanner.stopLoops();
-      else if (!state.captured) scanner.startLoops();
+      if (document.hidden) {
+        scanner.stopLoops();
+      } else if (!state.captured) {
+        const ok = await scanner.ensureLive();
+        if (!ok) return restartCamera();
+        scanner.startLoops();
+      }
     });
 
     // 送信前の離脱を警告

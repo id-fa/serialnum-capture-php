@@ -279,6 +279,20 @@ video は `object-fit: cover` で表示しているため、映像の一部は�
 `fullCanvas` の比率が stage と一致し、`computeRoi()` のオフセットが 0 になるため、
 静止画でもガイド枠と実際の切り出し位置が一致する（この整合性を壊さないこと）。
 
+### 15. iPhone Safari で静止画から戻すと映像が止まる（実際に踏んだ）
+
+送信（送信中オーバーレイ表示）→ クリアの順に操作すると、`resumeLive()` で
+静止画キャンバスを隠しても video が静止したままになる（カメラ停止→開始で直る）。
+iOS Safari は confirm() や全画面オーバーレイのあとで MediaStream の `<video>` を
+勝手に一時停止・描画停止することがあるため、**戻すときは映像が更新されているかを確認する**。
+
+- `scanner.ensureLive()` が `requestVideoFrameCallback` で新しいフレームを待ち、
+  来なければ `play()` → `srcObject` 付け直し の順で復旧を試みる。それでも動かなければ false
+- `resumeLive()` は async になり、この結果を返す。`app.js` の `backToLive()` が
+  false を受けたらカメラを停止→開始し直す（手動対処の自動化）
+- video の `pause` イベントでも、意図しない停止なら `play()` し直す
+- 静止画への切り替え・復帰を触るときは `resumeLive()` を `await` し、戻り値を捨てないこと
+
 ## 外部ライブラリ
 
 CDN から読み込んでいる（`index.html` の `<script>` と `config.js` の `OCR.*_PATH`）。

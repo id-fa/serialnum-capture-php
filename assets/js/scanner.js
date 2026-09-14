@@ -123,6 +123,15 @@
       this.fullCanvas = document.createElement('canvas');
       this.fullCtx = this.fullCanvas.getContext('2d');
 
+      // iOS Safari は confirm() や全画面オーバーレイのあとで MediaStream の
+      // <video> を勝手に一時停止することがある（映像が静止したままになる）。
+      // 意図した停止（stopCamera）以外で止まったら再生し直す。
+      this.video.addEventListener('pause', () => {
+        if (this.mode === 'idle' || !this.stream || document.hidden) return;
+        log('video paused unexpectedly; play() again');
+        this.video.play().catch((e) => log('re-play failed', e && e.name));
+      });
+
       // 撮影済み静止画（送信用）
       this.capturedBlob = null;
       this.capturedDataUrl = null;
@@ -706,12 +715,94 @@
       return { results };
     }
 
-    /** 静止画を破棄してリアルタイム読み取りに戻る */
-    resumeLive() {
+    /**
+     * 静止画を破棄してリアルタイム読み取りに戻る。
+     * 映像が止まっていれば復旧を試み、それでも動かなければ false を返す
+     * （呼び出し側でカメラを再起動する）。
+     * @returns {Promise<boolean>}
+     */
+    async resumeLive() {
       this.stillCanvas.hidden = true;
       this.capturedBlob = null;
       this.setMode('live');
+      const ok = await this.ensureLive();
       this.startLoops();
+      return ok;
+    }
+
+    /**
+     * ライブ映像が実際に更新されているか確認し、止まっていれば復旧を試みる。
+     *
+     * iPhone Safari で「送信 → クリア」のあと映像が静止したままになる不具合への対処。
+     * 送信中オーバーレイ（backdrop-filter 付きの全画面要素）や confirm() のあと、
+     * <video> が一時停止したり描画が更新されなくなることがある。
+     *
+     *   1. video.paused なら play() し直す
+     *   2. それでもフレームが来なければ srcObject を付け直す（権限確認なしの軽い再起動）
+     *   3. それでもだめ（トラックが ended / muted のまま）なら false
+     *
+     * @returns {Promise<boolean>} 映像が更新されていれば true
+     */
+    async ensureLive() {
+      if (!this.stream || !this.track) return false;
+      if (this.track.readyState !== 'live') {
+        log('track not live:', this.track.readyState);
+        return false;
+      }
+
+      if (this.video.paused) {
+        try { await this.video.play(); } catch (e) { log('play failed', e && e.name); }
+      }
+      if (await this._waitForFrame(600)) return true;
+
+      // フレームが来ない: ストリームを付け直して映像パイプラインを作り直す
+      log('video frozen; reattach stream');
+      const stream = this.stream;
+      this.video.srcObject = null;
+      this.video.srcObject = stream;
+      try { await this.video.play(); } catch (e) { log('play failed', e && e.name); }
+      const ok = await this._waitForFrame(1000);
+      if (!ok) log('video still frozen (track muted=' + this.track.muted + ')');
+      return ok;
+    }
+
+    /**
+     * 新しい映像フレームが来るまで待つ。
+     * requestVideoFrameCallback（iOS 15.4+）があればそれを使い、
+     * 無ければ currentTime の進みで代用する。
+     * @param {number} timeoutMs
+     * @returns {Promise<boolean>} タイムアウトまでにフレームが来たら true
+     */
+    _waitForFrame(timeoutMs) {
+      const video = this.video;
+      return new Promise((resolve) => {
+        let done = false;
+        const finish = (ok) => {
+          if (done) return;
+          done = true;
+          clearTimeout(timer);
+          if (handle !== null && video.cancelVideoFrameCallback) {
+            video.cancelVideoFrameCallback(handle);
+          }
+          resolve(ok);
+        };
+        const timer = setTimeout(() => finish(false), timeoutMs);
+        let handle = null;
+
+        if (typeof video.requestVideoFrameCallback === 'function') {
+          handle = video.requestVideoFrameCallback(() => finish(true));
+          return;
+        }
+
+        // フォールバック: currentTime が進んでいれば再生中とみなす
+        const start = video.currentTime;
+        const poll = () => {
+          if (done) return;
+          if (video.currentTime > start) return finish(true);
+          setTimeout(poll, 100);
+        };
+        setTimeout(poll, 100);
+      });
     }
 
     /** 撮影済み画像(JPEG Blob)。未撮影なら null */
