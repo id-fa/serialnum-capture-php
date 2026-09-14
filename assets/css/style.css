@@ -38,15 +38,23 @@ html, body {
   overscroll-behavior-y: contain;
 }
 
+/* アプリシェル型レイアウト:
+   ドキュメント自体はスクロールさせず、本文（.app-main）だけを内側でスクロールさせる。
+   iOS Safari で position: fixed のフッタを使うと、ページ末尾までスクロールしたときに
+   縮んだツールバーの裏に隠れる（実機で発生）。ページがスクロールしなければ
+   ツールバーは縮まず、フッタは常に見える。 */
 body {
-  min-height: 100dvh;
-  padding-bottom: calc(var(--footer-h) + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  height: 100vh;                 /* dvh 非対応ブラウザ向けの保険 */
+  height: -webkit-fill-available;
+  height: 100dvh;
+  overflow: hidden;
 }
 
 /* ---------- ヘッダ ---------- */
 .app-header {
-  position: sticky;
-  top: 0;
+  flex-shrink: 0;
   z-index: 30;
   display: flex;
   align-items: center;
@@ -106,7 +114,15 @@ body {
 .badge.is-error { color: var(--danger); border-color: rgba(239,83,80,.4); }
 
 /* ---------- レイアウト ---------- */
-.app-main { padding: 10px 10px 16px; display: flex; flex-direction: column; gap: 10px; }
+.app-main {
+  flex: 1 1 auto;
+  min-height: 0;                 /* flex 子要素を縮められるようにする（これが無いと overflow が効かない） */
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+  padding: 10px 10px 16px;
+  display: flex; flex-direction: column; gap: 10px;
+}
 
 .panel {
   background: var(--bg-panel);
@@ -239,20 +255,21 @@ body {
 .camera-actions .btn--ghost:first-child { justify-self: start; }
 .camera-actions .btn--ghost:last-child  { justify-self: end; }
 
+/* 横長のピル型。片手・手袋でも押しやすいよう横幅を広く取っている */
 .shutter {
   position: relative;
-  width: 58px; height: 58px;
+  width: 128px; height: 58px;
   padding: 0; border: none; background: none;
   cursor: pointer;
 }
 .shutter__ring {
   position: absolute; inset: 0;
   border: 3px solid rgba(255,255,255,.85);
-  border-radius: 50%;
+  border-radius: 999px;
 }
 .shutter__core {
   position: absolute; inset: 6px;
-  border-radius: 50%;
+  border-radius: 999px;
   background: #fff;
   transition: transform .12s, background .2s, border-radius .2s;
 }
@@ -403,8 +420,7 @@ body {
 
 /* ---------- フッタ ---------- */
 .app-footer {
-  position: fixed;
-  left: 0; right: 0; bottom: 0;
+  flex-shrink: 0;
   z-index: 30;
   display: grid; grid-template-columns: 1fr 2fr; gap: 10px;
   padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
@@ -415,11 +431,17 @@ body {
 .app-footer .btn { width: 100%; min-height: 50px; font-size: 15px; }
 
 /* ---------- トースト ---------- */
+/* 中央寄せは left/right: 0 + margin: auto で行う。
+   left: 50% + translateX(-50%) だと長文のとき利用可能幅が画面の半分と計算され、
+   細長く折り返される（長いファイル名で顕在化した）。 */
 .toast {
   position: fixed;
-  left: 50%; bottom: calc(var(--footer-h) + env(safe-area-inset-bottom) + 14px);
+  left: 0; right: 0;
+  bottom: calc(var(--footer-h) + env(safe-area-inset-bottom) + 14px);
   z-index: 50;
-  transform: translateX(-50%);
+  margin: 0 auto;
+  width: -webkit-fit-content;
+  width: fit-content;
   max-width: 88vw;
   padding: 10px 16px;
   background: #2b3644; color: var(--text);
@@ -429,8 +451,22 @@ body {
   animation: toastin .2s ease-out;
 }
 .toast.is-error { background: #4a2020; border-color: var(--danger); }
+/* タップで閉じるトースト（送信完了など）。長いファイル名でもはみ出さないよう折り返す */
+.toast.is-sticky {
+  cursor: pointer;
+  padding: 12px 20px;
+  border-radius: 16px;
+  overflow-wrap: anywhere;
+}
+.toast.is-sticky::after {
+  content: 'タップで閉じる';
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
 .toast.is-ok    { background: #17402a; border-color: rgba(46,204,113,.5); }
-@keyframes toastin { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
+@keyframes toastin { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 
 /* ---------- 送信中オーバーレイ ---------- */
 .blocker {
@@ -457,7 +493,7 @@ body {
 /* ---------- 大画面 ---------- */
 @media (min-width: 720px) {
   .app-main { max-width: 640px; margin: 0 auto; width: 100%; }
-  .app-footer { max-width: 640px; margin: 0 auto; }
+  .app-footer { max-width: 640px; margin: 0 auto; width: 100%; }
 }
 
 @media (prefers-reduced-motion: reduce) {

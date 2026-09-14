@@ -82,15 +82,30 @@
      ユーティリティ
      ============================================================ */
 
-  function toast(message, kind) {
+  /**
+   * トースト表示。
+   * @param {string} message
+   * @param {'ok'|'error'|undefined} kind
+   * @param {{sticky?: boolean}} [opts] sticky: true なら自動で消えず、タップで閉じる
+   *   （送信完了の通知に使う。次のトーストが出れば置き換わる）
+   */
+  function toast(message, kind, opts) {
     clearTimeout(toastTimer);
+    const sticky = !!(opts && opts.sticky);
     el.toast.textContent = message;
-    el.toast.className = 'toast' + (kind ? ' is-' + kind : '');
+    el.toast.className = 'toast' + (kind ? ' is-' + kind : '') + (sticky ? ' is-sticky' : '');
     el.toast.hidden = false;
+    if (sticky) return;
     toastTimer = setTimeout(() => {
       el.toast.hidden = true;
     }, kind === 'error' ? 4000 : 2200);
   }
+
+  // タップで閉じる（sticky 以外も閉じられる）
+  el.toast.addEventListener('click', () => {
+    clearTimeout(toastTimer);
+    el.toast.hidden = true;
+  });
 
   function setBadge(text, kind) {
     el.engineBadge.textContent = text;
@@ -484,7 +499,8 @@
         throw new Error(data.error || 'HTTP ' + res.status);
       }
 
-      toast('保存しました: ' + data.filename, 'ok');
+      // 送信完了は見落とさないよう、タップするまで消さない
+      toast('保存しました: ' + data.filename, 'ok', { sticky: true });
     } catch (e) {
       console.error(e);
       const msg = e.name === 'AbortError' ? '送信がタイムアウトしました' : e.message;

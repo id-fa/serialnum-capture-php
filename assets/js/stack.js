@@ -154,7 +154,7 @@
         fromIndex,
         toIndex: fromIndex,
         startY: e.clientY,
-        startScrollY: window.scrollY,
+        startScrollY: this._scrollOffset(),
         pointerId: e.pointerId,
         handle,
       };
@@ -173,13 +173,26 @@
       handle.addEventListener('pointercancel', this._onEnd);
     }
 
+    /**
+     * リストを含むスクロール量の合計（縦）。
+     * 本文は .app-main の内側でスクロールするため window.scrollY だけでは足りない。
+     * 祖先要素の scrollTop を全部足すので、どちらのレイアウトでも正しく補正できる。
+     */
+    _scrollOffset() {
+      let y = window.scrollY;
+      for (let el = this.el.parentElement; el; el = el.parentElement) {
+        y += el.scrollTop || 0;
+      }
+      return y;
+    }
+
     _onMove(e) {
       const d = this.drag;
       if (!d || e.pointerId !== d.pointerId) return;
       e.preventDefault();
 
       // ドラッグ中にページがスクロールしてもズレないよう補正する
-      const dy = e.clientY - d.startY + (window.scrollY - d.startScrollY);
+      const dy = e.clientY - d.startY + (this._scrollOffset() - d.startScrollY);
       d.li.style.transform = 'translateY(' + dy + 'px)';
 
       const raw = d.fromIndex + dy / d.step;

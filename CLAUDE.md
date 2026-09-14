@@ -135,7 +135,8 @@ config/<ID>.php ────┴→ loader.php ─┬→ api/config.js.php → wi
 
 - `stack.js` の `ITEM_GAP = 6` は CSS `.stack-item { margin-bottom: 6px }` と一致させる必要がある
 - ハンドルには `touch-action: none` が必須（外すとページスクロールに奪われる）
-- ドラッグ中のスクロール量は `window.scrollY` の差分で補正している
+- ドラッグ中のスクロール量は `_scrollOffset()`（`window.scrollY` + 祖先要素の `scrollTop` の合計）の
+  差分で補正している。本文は `.app-main` の内側でスクロールするため `window.scrollY` だけでは足りない
 
 ### 4. OCR とコード読取は別ループ
 
@@ -292,6 +293,22 @@ iOS Safari は confirm() や全画面オーバーレイのあとで MediaStream 
   false を受けたらカメラを停止→開始し直す（手動対処の自動化）
 - video の `pause` イベントでも、意図しない停止なら `play()` し直す
 - 静止画への切り替え・復帰を触るときは `resumeLive()` を `await` し、戻り値を捨てないこと
+
+### 16. フッタは position: fixed にしない（実際に踏んだ）
+
+iPhone Safari で、ページ末尾までスクロールすると `position: fixed; bottom: 0` のフッタ
+（クリア / 送信）が縮んだツールバーの裏に隠れ、ツールバー部分をタップするか
+さらに引っ張らないと出てこない現象が起きた。
+
+現在はアプリシェル型レイアウトで回避している。**この構造を崩さないこと。**
+
+- `body` は `height: 100dvh` + `overflow: hidden` の flex 縦並び。**ドキュメント自体はスクロールしない**
+  （スクロールしなければ Safari のツールバーは縮まず、フッタが裏に回ることもない）
+- スクロールするのは `.app-main` だけ（`flex: 1; min-height: 0; overflow-y: auto`）。
+  `min-height: 0` を外すと flex 子要素が縮まず overflow が効かなくなる
+- `.app-header` / `.app-footer` は通常配置の flex 子要素（`flex-shrink: 0`）
+- `.toast` / `.blocker` は従来どおり `position: fixed`（ビューポート基準で問題ない）
+- 備考欄フォーカス時のキーボード表示で iOS がページ全体をずらす可能性はあるが、実機未確認
 
 ## 外部ライブラリ
 
