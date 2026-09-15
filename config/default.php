@@ -80,6 +80,12 @@ return [
         // 例: 'Ymd-His' → 20260910-142530.json
         // ※ FILENAME.ALLOWED_CHARS 以外の文字は保存時に取り除かれます。
         'TIMESTAMP_FORMAT' => 'Ymd-His',
+
+        // 保存側で日時を作るときのタイムゾーン（PHP のタイムゾーン識別子）。
+        // php.ini の date.timezone がどうなっていても、ここで指定した時刻で
+        // ファイル名（TIMESTAMP_FORMAT）や created_at を作る。
+        // 無効な値や空のときは 'Asia/Tokyo' として扱う。
+        'TIMEZONE' => 'Asia/Tokyo',
     ],
 
     /* ===== ファイル名の作り方 =====

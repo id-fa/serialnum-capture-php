@@ -40,6 +40,14 @@ $saveMode    = (($SAVE['MODE'] ?? 'image') === 'text') ? 'text' : 'image';
 $textFormat  = (($SAVE['TEXT_FORMAT'] ?? 'json') === 'txt') ? 'txt' : 'json';
 $stampFormat = (string)($SAVE['TIMESTAMP_FORMAT'] ?? 'Ymd-His');
 
+// 日時は設定のタイムゾーンで作る（php.ini の date.timezone に依存させない）。
+// タイムスタンプのファイル名・同名時の日時サフィックス・created_at のすべてに効く。
+// 無効な識別子や空なら日本時間に落とす（現場の時刻とファイル名が食い違わないように）。
+$timezone = (string)($SAVE['TIMEZONE'] ?? '');
+if ($timezone === '' || !@date_default_timezone_set($timezone)) {
+    date_default_timezone_set('Asia/Tokyo');
+}
+
 /* ------------------------------------------------------------
    ヘルパ
    ------------------------------------------------------------ */

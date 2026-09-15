@@ -171,6 +171,7 @@ config/<ID>.php ────┘  └→ 保存側（api/upload.php が直接読�
 | `SAVE.MODE` | `image`（既定・撮影画像を保存）/ `text`（写真を保存せず文字列だけ保存） |
 | `SAVE.TEXT_FORMAT` | `MODE = 'text'` のときの形式。`json`（備考も残る）/ `txt`（1行1文字列） |
 | `SAVE.TIMESTAMP_FORMAT` | `MODE = 'text'` のときのファイル名。PHP の `date()` 書式。既定 `Ymd-His` |
+| `SAVE.TIMEZONE` | 保存側で日時を作るタイムゾーン（`TIMESTAMP_FORMAT` のファイル名・同名時の日時サフィックス・`created_at`）。既定 `Asia/Tokyo`。php.ini の `date.timezone` に関係なくこの値で作る。無効な値なら `Asia/Tokyo` |
 | `CAPTURE.CROP_TO_VIEW` | `true`（既定）でカメラ読み取り部に写っている範囲だけを保存。`false` で映像全体 |
 | `CAPTURE.MAX_EDGE` / `JPEG_QUALITY` | 送信する画像のサイズ・画質 |
 | `UI.VIBRATE_MS` / `UI.BEEP` | 検出時のバイブ・ビープ |
