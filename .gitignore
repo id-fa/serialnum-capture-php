@@ -1,0 +1,9 @@
+# 設置先ごとの設定（default.php を触らずに上書きする。雛形は local.php.sample）
+/config/local.php
+
+# 保存データ
+/storage/*
+!/storage/.gitkeep
+
+# 作業用
+/node_modules/

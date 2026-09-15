@@ -14,7 +14,8 @@
 ```
 serialnum-capture-php/
 ├── config/                 ★ 設定
-│   ├── default.php           共通設定
+│   ├── default.php           共通設定（Git 管理。設置先では触らない）
+│   ├── local.php             設置先ごとの差分（Git 管理外。雛形は local.php.sample）
 │   ├── PRJ-0001.php          プロジェクト別の差分
 │   ├── PRJ-0002.php          プロジェクト別の差分
 │   └── loader.php            読み込みの仕組み（編集不要）
@@ -136,12 +137,15 @@ PHP built-in server は HTTPS 非対応・同時接続が弱いため、あく�
 
 ```
 config/default.php ─┐
-config/<ID>.php ────┴→ ┬→ 画面側（api/config.js.php が JavaScript として配信）
-                       └→ 保存側（api/upload.php が直接読み込み）
+config/local.php ───┼→ ┬→ 画面側（api/config.js.php が JavaScript として配信）
+config/<ID>.php ────┘  └→ 保存側（api/upload.php が直接読み込み）
 ```
 
-- **共通の設定** … `config/default.php`
+- **共通の設定** … `config/default.php`（Git 管理。設置先では書き換えない）
+- **設置先ごとの設定** … `config/local.php`（Git 管理外。`default.php` を触らずに土台を上書きする。詳しくは 6 章）
 - **プロジェクトごとに変えたい設定** … `config/<プロジェクトID>.php`（詳しくは次章）
+
+重なる順は `default.php` → `local.php` → `<プロジェクトID>.php` で、後のファイルに書いた項目だけが上書きされます。
 
 ### 主な設定項目
 
@@ -149,6 +153,7 @@ config/<ID>.php ────┴→ ┬→ 画面側（api/config.js.php が Java
 |---|---|
 | `PROJECT_ID` | 送信時のプロジェクトID。保存フォルダ名になる |
 | `PROJECT_LABEL` | 画面上部の表示名 |
+| `SHOW_IN_SELECT` | `false` にすると、そのファイルが表すプロジェクトを切り替えプルダウンに載せない。`default.php`（`local.php`）に書けば既定プロジェクトだけに効き、**他の `config/<ID>.php` には継承されない**。詳しくは 6 章 |
 | `API.UPLOAD_URL` | 送信先。既定は `./api/upload.php` |
 | `CAMERA.FACING_MODE` | `environment`（背面）/ `user`（前面） |
 | `ROI.*` | 読み取りガイド枠の位置・大きさ。枠を絞るほど高速・高精度。カメラ表示の縦横比（CSS の `.camera-stage`）を変えたら合わせて調整する |
@@ -207,14 +212,35 @@ config/<ID>.php ────┴→ ┬→ 画面側（api/config.js.php が Java
 |---|---|
 | `ALLOWED_CHARS` | ファイル名に使える文字。既定 `0-9A-Za-z._-`。これ以外は除去されます |
 | `SEPARATOR` | スタック文字列をつなぐ区切り文字。既定 `-` |
-| `MAX_LENGTH` | ファイル名の最大長。超過時は切り詰め + ハッシュ付与 |
+| `MAX_LENGTH` | ファイル名の最大長（バイト数）。超過時は切り詰め + ハッシュ付与 |
+| `APPEND_NOTE` | `true`（既定）で、画像モードのファイル名の末尾に備考欄の内容を付ける。備考が空なら何も付かない |
+| `NOTE_SEPARATOR` | スタック文字列と備考の間の区切り。既定 `_`（備考にハイフンが入ることがあるため `SEPARATOR` とは別） |
+| `NOTE_MAX_LENGTH` | ファイル名に含める備考の最大文字数。既定 50。0 で無制限 |
+
+#### 備考をファイル名に付ける（画像モード）
+
+`SAVE.MODE = 'image'` のとき、備考欄に入力した内容がファイル名の末尾に付きます。
+
+```
+スタック: AB123, CD456  /  備考: 山田 太郎   →  AB123-CD456_山田 太郎.jpg
+```
+
+備考は日本語を残すため `ALLOWED_CHARS` では絞らず、次の規則で整えます
+（画面のファイル名プレビューにも同じ規則で反映されます）。
+
+- Windows でファイル名に使えない文字 `\ / : * ? " < > |` と制御文字を除去
+- 前後の空白・改行を取り除き、途中に残った改行は空白1つに置き換え
+- 末尾のドット・空白を除去
+- `NOTE_MAX_LENGTH` 文字を超えた分は切り捨て
+
+写真保存なしモード（`SAVE.MODE = 'text'`）では従来どおりファイル名はタイムスタンプで、備考は JSON の中に入ります。
 
 ### サーバー専用: `SERVER`
 
 | 項目 | 説明 |
 |---|---|
 | `STORAGE_DIR` | 保存ルート |
-| `ALLOWED_PROJECT_IDS` | 許可するプロジェクトID。空配列なら制限なし |
+| `ALLOWED_PROJECT_IDS` | 許可するプロジェクトID。空配列なら制限なし。指定すると送信の受け付けと切り替えプルダウンの両方がこのIDに絞られる |
 | `ON_CONFLICT` | 同名時の動作 `suffix`（`_2`,`_3`…） / `timestamp` / `overwrite` |
 | `SAVE_META` | 備考などを `<画像名>.json` に保存するか |
 | `MAX_IMAGE_BYTES` | 画像サイズ上限 |
@@ -263,6 +289,17 @@ https://xxxx.trycloudflare.com/?p=PRJ-0003
 
 プロジェクトが1つだけのときはセレクトは出ず、これまでどおりのラベル表示です。
 
+**プルダウンに載せない**
+
+`config/<ID>.php` に `'SHOW_IN_SELECT' => false` を書くと、そのプロジェクトはプルダウンに出なくなります
+（URL の `?p=<ID>` では引き続き開けます）。
+
+既定プロジェクト（`default.php` の `PROJECT_ID`）を載せたくないときは、`default.php` か `local.php` に
+`'SHOW_IN_SELECT' => false` を書きます。**この項目は書いたファイルの分にしか効かず、他の
+`config/<ID>.php` には継承されません**（土台で `false` にしても各プロジェクトは消えません）。
+
+隠したプロジェクトを開いているときだけは、現在地が分かるようにプルダウンの先頭に表示されます。
+
 ### 上書きのルール
 
 | 書き方 | 動作 |
@@ -274,10 +311,31 @@ https://xxxx.trycloudflare.com/?p=PRJ-0003
 ### 注意点
 
 - プロジェクトIDは設定ファイル名と保存フォルダ名になります。使える文字は英数字と `. _ -` です
-- `default` と `loader` はプロジェクトIDに使えません（仕組みのファイル名のため）
+- `default` `local` `loader` はプロジェクトIDに使えません（仕組みのファイル名のため）
 - 存在しないIDを指定しても既定プロジェクトで動きます（エラーにはなりません）。
-- 特定のプロジェクトだけを許可したい場合は、`config/default.php` の
-  `SERVER.ALLOWED_PROJECT_IDS` にIDを並べてください
+- 特定のプロジェクトだけを許可したい場合は、`config/local.php` の
+  `SERVER.ALLOWED_PROJECT_IDS` にIDを並べてください（プルダウンもそのIDだけになります）
+
+### default.php を触らずに設定する（`config/local.php`）
+
+設置先で「既定プロジェクトを変えたい」「上限値を変えたい」といった土台の変更が必要なときは、
+`default.php` を編集せずに `config/local.php` を作ります。`local.php` は Git 管理外（`.gitignore` 済み）なので、
+`git pull` で `default.php` が更新されても競合しません。雛形は `config/local.php.sample` です。
+
+```php
+<?php
+// config/local.php
+return [
+    'PROJECT_ID'     => 'ZOE_TAB_1',   // 何も指定せずに開いたときのプロジェクト
+    'SHOW_IN_SELECT' => false,         // 既定プロジェクトをプルダウンに載せない
+    'SERVER' => [
+        'ALLOWED_PROJECT_IDS' => ['ZOE_TAB_1', 'ZOE_TAB_2'],
+    ],
+];
+```
+
+`local.php` は `default.php` と同じ「土台」の扱いなので、ここに書いた項目はすべての
+`config/<ID>.php` の土台になります（`SHOW_IN_SELECT` だけは例外で、既定プロジェクトの表示可否にしか効きません）。
 
 ---
 
@@ -359,8 +417,9 @@ https://xxxx.trycloudflare.com/?debug=1
 ```
 storage/
 └── PRJ-0001/
-    ├── AB123-CD456-EF789.jpg      撮影画像（スタック文字列をハイフン連結）
-    └── AB123-CD456-EF789.json     備考などのメタ情報（SERVER.SAVE_META = true のとき）
+    ├── AB123-CD456-EF789.jpg           撮影画像（スタック文字列をハイフン連結）
+    ├── AB123-CD456-EF789_山田.jpg      備考「山田」を入力したとき（FILENAME.APPEND_NOTE = true）
+    └── AB123-CD456-EF789.json          備考などのメタ情報（SERVER.SAVE_META = true のとき）
 ```
 
 `*.json` の中身:

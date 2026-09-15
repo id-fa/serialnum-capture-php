@@ -187,6 +187,44 @@
       .replace(/^[.-]+/, '');
   }
 
+  /**
+   * 備考をファイル名に付けられる形へ整える（画像モードで FILENAME.APPEND_NOTE のとき）。
+   *
+   * 備考は日本語を残したいので ALLOWED_CHARS では絞らず、
+   * 「Windows でファイル名に使えない文字を除く」規則で整える。
+   * 保存側（api/upload.php の sanitize_note_for_filename）と同じ手順:
+   *   1. 前後の空白・改行を取り除く
+   *   2. 途中に残った改行（CRLF / CR / LF）を空白1つに置き換える
+   *   3. \ / : * ? " < > | と制御文字を除去する
+   *   4. NOTE_MAX_LENGTH 文字で切り詰める
+   *   5. 末尾のドットと空白を除去する（Windows が黙って削る文字のため）
+   */
+  const NOTE_NG = /[\\/:*?"<>|\x00-\x1F\x7F]/g;
+  const NOTE_EDGE_SPACE = /^[\s\p{Z}]+|[\s\p{Z}]+$/gu;
+  const NOTE_TAIL = /^[\s\p{Z}]+|[\s\p{Z}.]+$/gu;
+
+  function sanitizeNoteForFilename(s) {
+    const max = Number(CONFIG.FILENAME.NOTE_MAX_LENGTH) || 0;
+    let t = String(s)
+      .replace(NOTE_EDGE_SPACE, '')
+      .replace(/\r\n|\r|\n/g, ' ')
+      .replace(NOTE_NG, '');
+    if (max > 0) t = Array.from(t).slice(0, max).join('');
+    return t.replace(NOTE_TAIL, '');
+  }
+
+  /** 画像モードで保存されるファイル名（拡張子なし）。保存側と同じ組み立て */
+  function buildImageBaseName(texts) {
+    const name = texts
+      .map(sanitizeForFilename)
+      .filter(Boolean)
+      .join(CONFIG.FILENAME.SEPARATOR) || 'noname';
+    if (!CONFIG.FILENAME.APPEND_NOTE) return name;
+    const note = sanitizeNoteForFilename(el.noteInput.value || '');
+    if (!note) return name;
+    return name + (CONFIG.FILENAME.NOTE_SEPARATOR ?? '_') + note;
+  }
+
   /* ============================================================
      候補リスト（読み取り文字列表示部）
      ============================================================ */
@@ -265,28 +303,32 @@
      スタック部
      ============================================================ */
 
+  /** 保存ファイル名のプレビューを描き直す（スタック・備考が変わるたびに呼ぶ） */
+  function updateFilenamePreview() {
+    const texts = stack ? stack.getTexts() : [];
+    if (!texts.length) {
+      el.filenamePreview.hidden = true;
+      return;
+    }
+    if (TEXT_ONLY) {
+      // 写真保存なしモードのファイル名は送信時のタイムスタンプ（サーバー側で決まる）
+      el.filenameValue.textContent = '<送信時刻>.' + TEXT_EXT;
+    } else {
+      el.filenameValue.textContent = buildImageBaseName(texts) + '.jpg';
+    }
+    el.filenamePreview.hidden = false;
+  }
+
   function onStackChange(texts) {
     el.stackCount.textContent = String(texts.length);
     el.stackEmpty.hidden = texts.length > 0;
-
-    if (texts.length) {
-      if (TEXT_ONLY) {
-        // 写真保存なしモードのファイル名は送信時のタイムスタンプ（サーバー側で決まる）
-        el.filenameValue.textContent = '<送信時刻>.' + TEXT_EXT;
-      } else {
-        const name = texts
-          .map(sanitizeForFilename)
-          .filter(Boolean)
-          .join(CONFIG.FILENAME.SEPARATOR);
-        el.filenameValue.textContent = (name || 'noname') + '.jpg';
-      }
-      el.filenamePreview.hidden = false;
-    } else {
-      el.filenamePreview.hidden = true;
-    }
+    updateFilenamePreview();
     renderCandidates();
     updateSubmitState();
   }
+
+  // 画像モードでは備考もファイル名に入るので、入力のたびにプレビューへ反映する
+  el.noteInput.addEventListener('input', updateFilenamePreview);
 
   el.addManualBtn.addEventListener('click', () => {
     const v = window.prompt('スタックに追加する文字列を入力');
@@ -613,7 +655,14 @@
      ============================================================ */
 
   function setupProjectSwitcher() {
-    const projects = Array.isArray(CONFIG.PROJECTS) ? CONFIG.PROJECTS : [];
+    const projects = (Array.isArray(CONFIG.PROJECTS) ? CONFIG.PROJECTS : []).slice();
+
+    // いま開いているプロジェクトが一覧に無い（SHOW_IN_SELECT = false で隠されている等）
+    // 場合も、現在地が分かるように選択肢の先頭に足す。隠したプロジェクトは
+    // 他のプロジェクトを開いているときには出てこない、という意味になる
+    if (!projects.some((p) => p.id === CONFIG.PROJECT_ID)) {
+      projects.unshift({ id: CONFIG.PROJECT_ID, label: CONFIG.PROJECT_LABEL });
+    }
 
     // 1つしか定義されていないなら、これまでどおりラベル表示のまま
     if (projects.length < 2 || !el.projectSelect) {

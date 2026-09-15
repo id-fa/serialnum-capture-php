@@ -2,11 +2,13 @@
 /**
  * 設定の読み込み（仕組みの部分・通常は編集不要）
  * ============================================================
- * config/default.php を土台に、config/<プロジェクトID>.php があれば
- * その内容を重ねて（差分だけ上書きして）返します。
+ * config/default.php を土台に、config/local.php（あれば）と
+ * config/<プロジェクトID>.php（あれば）をこの順に重ねて
+ * （差分だけ上書きして）返します。
  *
- *   config/default.php    共通設定 … すべてのプロジェクトの土台
- *   config/PRJ-0001.php   差分のみ … 書いた項目だけ default を上書き
+ *   config/default.php    共通設定 … すべてのプロジェクトの土台（Git 管理）
+ *   config/local.php      設置先の差分 … default.php を触らずに土台を書き換える（Git 管理外）
+ *   config/PRJ-0001.php   差分のみ … 書いた項目だけ土台を上書き
  *   config/PRJ-0002.php   差分のみ
  *
  * 使い方:
@@ -16,6 +18,16 @@
  */
 
 declare(strict_types=1);
+
+/**
+ * 切り替えプルダウンに載せるかどうかの項目名。
+ *
+ * この項目だけは「書いたファイルの分にしか効かない」。
+ * default.php（+ local.php）に書けば既定プロジェクトの表示だけを、
+ * config/<ID>.php に書けばそのプロジェクトの表示だけを決める。
+ * 土台からプロジェクトへは継承させず、読み込み結果からも取り除く。
+ */
+const INSPECTION_SHOW_IN_SELECT = 'SHOW_IN_SELECT';
 
 /**
  * プロジェクトIDとして受け付けてよい形か。
@@ -37,7 +49,7 @@ function inspection_valid_project_id(?string $id): bool
         return false;
     }
     // 土台のファイルと仕組みのファイルは選ばせない
-    if (in_array(strtolower($id), ['default', 'loader'], true)) {
+    if (in_array(strtolower($id), ['default', 'local', 'loader'], true)) {
         return false;
     }
     return true;
@@ -68,6 +80,30 @@ function inspection_merge_config(array $base, array $override): array
     return $base;
 }
 
+/**
+ * 土台の設定（default.php に local.php を重ねたもの）。
+ *
+ * local.php は設置先ごとの差分を置く場所で Git 管理外。
+ * 既定プロジェクトのIDや SERVER の上限値など「default.php を直接
+ * 書き換えたくなる項目」をここで上書きできる。
+ */
+function inspection_base_config(): array
+{
+    $config = require __DIR__ . '/default.php';
+    if (!is_array($config)) {
+        $config = [];
+    }
+
+    $localPath = __DIR__ . DIRECTORY_SEPARATOR . 'local.php';
+    if (is_file($localPath)) {
+        $local = require $localPath;
+        if (is_array($local)) {
+            $config = inspection_merge_config($config, $local);
+        }
+    }
+    return $config;
+}
+
 /** プロジェクト別設定ファイルのパス（妥当なIDのときのみ） */
 function inspection_project_config_path(string $id): ?string
 {
@@ -78,38 +114,71 @@ function inspection_project_config_path(string $id): ?string
     return is_file($path) ? $path : null;
 }
 
+/** 設定配列の SHOW_IN_SELECT を読む（未指定は true） */
+function inspection_show_in_select(array $config): bool
+{
+    return ($config[INSPECTION_SHOW_IN_SELECT] ?? true) !== false;
+}
+
 /**
- * 定義済みプロジェクトの一覧を返す。
+ * 切り替えプルダウンに載せるプロジェクトの一覧を返す。
  *
- * @return array<int, array{id: string, label: string}> 画面の切り替えUIに使う
+ * 載るもの:
+ *   - config/<ID>.php があるプロジェクト（そのファイルの SHOW_IN_SELECT が false なら除く）
+ *   - 既定プロジェクト（土台の PROJECT_ID）。専用ファイルが無くても載る。
+ *     土台の SHOW_IN_SELECT が false なら、専用ファイルの有無にかかわらず除く
+ *   - SERVER.ALLOWED_PROJECT_IDS が設定されていれば、そこにあるものだけ
+ *     （送信できないプロジェクトを選ばせても意味がないため）
+ *
+ * @return array<int, array{id: string, label: string}>
  */
 function inspection_list_projects(): array
 {
-    $defaults = require __DIR__ . '/default.php';
+    $base        = inspection_base_config();
+    $defaultId   = (string)($base['PROJECT_ID'] ?? '');
+    $showDefault = inspection_show_in_select($base);
+    $allowed     = $base['SERVER']['ALLOWED_PROJECT_IDS'] ?? [];
+    $allowed     = is_array($allowed) ? array_map('strval', $allowed) : [];
+
     $projects = [];
 
     foreach (glob(__DIR__ . '/*.php') ?: [] as $file) {
         $id = basename($file, '.php');
         if (!inspection_valid_project_id($id)) {
-            continue;   // default.php / loader.php はここで除外される
+            continue;   // default.php / local.php / loader.php はここで除外される
         }
         $override = require $file;
         if (!is_array($override)) {
             continue;
         }
+        // 表示可否はそのファイル自身の分だけを見る（土台からは継承しない）
+        if (!inspection_show_in_select($override)) {
+            continue;
+        }
+        // 既定プロジェクトは土台側の指定にも従う
+        if ($id === $defaultId && !$showDefault) {
+            continue;
+        }
         $projects[] = [
             'id'    => $id,
-            'label' => (string)($override['PROJECT_LABEL'] ?? $defaults['PROJECT_LABEL'] ?? $id),
+            'label' => (string)($override['PROJECT_LABEL'] ?? $base['PROJECT_LABEL'] ?? $id),
         ];
     }
 
     // 既定プロジェクトに専用ファイルが無い場合も一覧に載せる
-    $defaultId = (string)($defaults['PROJECT_ID'] ?? '');
-    if ($defaultId !== '' && !in_array($defaultId, array_column($projects, 'id'), true)) {
+    if ($defaultId !== '' && $showDefault
+        && !in_array($defaultId, array_column($projects, 'id'), true)) {
         array_unshift($projects, [
             'id'    => $defaultId,
-            'label' => (string)($defaults['PROJECT_LABEL'] ?? $defaultId),
+            'label' => (string)($base['PROJECT_LABEL'] ?? $defaultId),
         ]);
+    }
+
+    if ($allowed) {
+        $projects = array_values(array_filter(
+            $projects,
+            static fn($p) => in_array($p['id'], $allowed, true)
+        ));
     }
 
     usort($projects, static fn($a, $b) => strcmp($a['id'], $b['id']));
@@ -121,13 +190,13 @@ function inspection_list_projects(): array
  *
  * @param string|null $projectId 切り替えたいプロジェクトID。
  *                               null / 不正 / 対応ファイルなし の場合は
- *                               config/default.php の内容をそのまま返す。
+ *                               土台（default.php + local.php）の内容をそのまま返す。
  */
 function inspection_load_config(?string $projectId = null): array
 {
-    $config = require __DIR__ . '/default.php';
+    $config = inspection_base_config();
 
-    // 指定が無ければ default.php の PROJECT_ID を使う。
+    // 指定が無ければ土台の PROJECT_ID を使う。
     // これにより既定プロジェクトでも専用ファイルが適用される。
     $id = ($projectId !== null && $projectId !== '')
         ? $projectId
@@ -144,6 +213,10 @@ function inspection_load_config(?string $projectId = null): array
         $config['PROJECT_ID'] = $id;
     }
     // 対応ファイルが無いIDを渡された場合は、既定プロジェクトのまま返す
+
+    // 一覧表示の可否は inspection_list_projects() がファイル単位で見る。
+    // 動作設定には関係ないので、継承させないためにも取り除いておく
+    unset($config[INSPECTION_SHOW_IN_SELECT]);
 
     return $config;
 }

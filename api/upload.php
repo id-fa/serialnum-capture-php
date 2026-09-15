@@ -10,6 +10,7 @@
  *
  * 保存先（設定の SAVE.MODE で決まる）
  *   'image' : storage/<project_id>/<strings をハイフン連結>.jpg
+ *             FILENAME.APPEND_NOTE が有効なら末尾に「_<備考>」が付く
  *   'text'  : storage/<project_id>/<タイムスタンプ>.json （または .txt）
  */
 
@@ -79,6 +80,32 @@ function sanitize_token(string $s, string $allowedChars): string
     $s = preg_replace('/[^' . $allowedChars . ']/u', '', $s) ?? '';
     // 先頭のドットやハイフンは隠しファイル・オプション誤認の元なので落とす
     $s = ltrim($s, '.-');
+    return $s;
+}
+
+/**
+ * 備考をファイル名に付けられる形へ整える（画像モードで FILENAME.APPEND_NOTE のとき）。
+ *
+ * 備考は日本語を残したいので ALLOWED_CHARS では絞らず、
+ * 「Windows でファイル名に使えない文字を除く」規則で整える。
+ * 画面側のプレビュー（app.js の sanitizeNoteForFilename）と同じ規則。
+ *
+ *   1. 前後の空白・改行を取り除く
+ *   2. 途中に残った改行（CRLF / CR / LF）を空白1つに置き換える
+ *   3. \ / : * ? " < > | と制御文字を除去する
+ *      （/ と \ が消えるので、備考でフォルダの外に出ることはできない）
+ *   4. 最大文字数で切り詰める
+ *   5. 末尾のドットと空白を除去する（Windows が黙って削るため、衝突判定がズレる）
+ */
+function sanitize_note_for_filename(string $s, int $maxLen): string
+{
+    $s = preg_replace('/^[\s\p{Z}]+|[\s\p{Z}]+$/u', '', $s) ?? '';
+    $s = preg_replace('/\r\n|\r|\n/', ' ', $s) ?? '';
+    $s = preg_replace('~[\\\\/:*?"<>|\x00-\x1F\x7F]~u', '', $s) ?? '';
+    if ($maxLen > 0) {
+        $s = mb_substr($s, 0, $maxLen, 'UTF-8');
+    }
+    $s = preg_replace('/^[\s\p{Z}]+|[\s\p{Z}.]+$/u', '', $s) ?? '';
     return $s;
 }
 
@@ -248,11 +275,20 @@ if ($saveMode === 'text') {
         $base = 'noname-' . date('Ymd-His');
     }
 
-    // 長すぎる場合は切り詰めて衝突しないようハッシュを付ける
+    // 備考をファイル名の末尾に付ける（設定で有効なとき・備考が空でないとき）
+    if (!empty($FILENAME['APPEND_NOTE'])) {
+        $noteToken = sanitize_note_for_filename($note, (int)($FILENAME['NOTE_MAX_LENGTH'] ?? 0));
+        if ($noteToken !== '') {
+            $base .= (string)($FILENAME['NOTE_SEPARATOR'] ?? '_') . $noteToken;
+        }
+    }
+
+    // 長すぎる場合は切り詰めて衝突しないようハッシュを付ける。
+    // 備考に日本語が入ると1文字が複数バイトになるので、文字の途中で切らないよう mb_strcut を使う
     $maxLen = (int)$FILENAME['MAX_LENGTH'];
     if (strlen($base) > $maxLen) {
         $hash = substr(md5($base), 0, 8);
-        $base = substr($base, 0, $maxLen - 9) . '_' . $hash;
+        $base = rtrim(mb_strcut($base, 0, $maxLen - 9, 'UTF-8'), ' .') . '_' . $hash;
     }
 }
 
@@ -312,7 +348,8 @@ if (!empty($CONFIG['SAVE_META'])) {
         'image'       => $filename,
         'created_at'  => date('c'),
     ];
-    $metaPath = $dir . DIRECTORY_SEPARATOR . pathinfo($filename, PATHINFO_FILENAME) . '.json';
+    // pathinfo() はロケール次第で多バイト文字を落とすことがあるので、拡張子を直接外す
+    $metaPath = $dir . DIRECTORY_SEPARATOR . substr($filename, 0, -strlen('.' . $ext)) . '.json';
     @file_put_contents(
         $metaPath,
         json_encode($meta, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)

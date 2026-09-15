@@ -28,8 +28,9 @@ URL は起動のたびに変わるので、固定URLが必要になったら nam
 
 | ファイル | 責務 |
 |---|---|
-| `config/default.php` | **設定の置き場**（画面側・保存側で共通）。すべてのプロジェクトの土台 |
-| `config/<ID>.php` | プロジェクト別の差分。書いた項目だけ default を上書きする |
+| `config/default.php` | **設定の置き場**（画面側・保存側で共通）。すべてのプロジェクトの土台。Git 管理 |
+| `config/local.php` | 設置先ごとの差分（Git 管理外）。default.php を触らずに土台を上書きする。雛形は `local.php.sample` |
+| `config/<ID>.php` | プロジェクト別の差分。書いた項目だけ土台を上書きする |
 | `config/loader.php` | 設定の読み込みとマージ（仕組み。通常は編集しない） |
 | `api/config.js.php` | 設定を JavaScript として画面側へ配信。`window.CONFIG` / `window.OCR_CHARSETS` を出力 |
 | `index.php` | DOM構造のみ。冒頭の PHP は「URLの ?p= を設定配信へ引き継ぐ」ためだけにある |
@@ -49,17 +50,31 @@ URL は起動のたびに変わるので、固定URLが必要になったら nam
 
 ```
 config/default.php ─┐
-config/<ID>.php ────┴→ loader.php ─┬→ api/config.js.php → window.CONFIG   （画面側）
-                                   └→ api/upload.php    → $CONFIG/$FILENAME（保存側）
+config/local.php ───┼→ loader.php ─┬→ api/config.js.php → window.CONFIG   （画面側）
+config/<ID>.php ────┘              └→ api/upload.php    → $CONFIG/$FILENAME（保存側）
 ```
 
 - 共通の値は `config/default.php`、プロジェクト固有の値は `config/<ID>.php` に**差分だけ**書く
+- 設置先で土台を変えたいとき（既定 `PROJECT_ID`、`SERVER` の上限値など）は
+  `config/local.php` に書く。**default.php は Git 管理なので設置先で編集させない**
+  （更新時に競合するため）。`local.php` は `.gitignore` 済み。
+  マージ順は `default.php` → `local.php` → `<ID>.php`（`inspection_base_config()` が前2つを重ねる）
 - 画面側にだけ必要な値も、保存側にだけ必要な値も、すべてここに書く
 - **`SERVER` セクションは画面側に送られない**（`api/config.js.php` が `unset()` する）。
   サーバー内のパスや上限値はここに置くこと
 - `FILENAME.ALLOWED_CHARS` / `SEPARATOR` は**両側が同じ値を使う**。
   `app.js` の `sanitizeForFilename()` と `api/upload.php` の `sanitize_token()` は
   どちらもこの設定から正規表現を組み立てるので、ルールがズレることはない
+- 画像モードでは `FILENAME.APPEND_NOTE`（既定 true）で**備考がファイル名の末尾に付く**
+  （`<スタック連結>` + `NOTE_SEPARATOR` + `<備考>`）。備考は日本語を残すため
+  `ALLOWED_CHARS` では絞らず、「Windows で使えない文字 `\ / : * ? " < > |` と制御文字を除去 /
+  前後の空白・改行をトリム / 途中の改行は空白1つに置換 / 末尾のドット・空白を除去 /
+  `NOTE_MAX_LENGTH` 文字で切り詰め」という別規則で整える。
+  `app.js` の `sanitizeNoteForFilename()` と `api/upload.php` の `sanitize_note_for_filename()`
+  は**手順を1対1で揃えてある**ので、片方だけ変えないこと。
+  `/` `\` が消えるので備考でフォルダの外には出られない。写真保存なしモードには付かない
+- `FILENAME.MAX_LENGTH` の切り詰めは `mb_strcut()` で行う（備考の多バイト文字の途中で
+  切ると不正な UTF-8 のファイル名になるため）。`substr()` に戻さないこと
 
 `OCR.PATTERN` は JSON に正規表現リテラルを置けないため **設定では文字列**
 （スラッシュで囲まない中身だけ）で書く。**文字列1本でも、文字列の配列でもよい。**
@@ -92,6 +107,15 @@ config/<ID>.php ────┴→ loader.php ─┬→ api/config.js.php → wi
   ここを消すと、URLで切り替えても設定が既定のままになる
 - 画面のセレクトは**プロジェクトが2つ以上定義されているときだけ**表示される。
   1つなら従来どおりのラベル表示（現場の操作数を増やさないため）
+- **`SHOW_IN_SELECT` は継承されない特別な項目**。`inspection_list_projects()` が
+  各ファイルの生の配列から直接読み、`inspection_load_config()` は結果から `unset()` する。
+  `default.php`（`local.php`）に書けば既定プロジェクト（`PROJECT_ID`）の表示だけ、
+  `<ID>.php` に書けばそのプロジェクトの表示だけを決める。マージ経由で伝播させないこと
+- 隠したプロジェクトを開いているときは、`app.js` の `setupProjectSwitcher()` が
+  現在のプロジェクトを選択肢の先頭に足す（セレクトが現在地と食い違わないようにするため）
+- `SERVER.ALLOWED_PROJECT_IDS` を指定すると、一覧もそのIDだけに絞られる
+  （送信できないプロジェクトを選ばせない）
+- `?p=local` は `inspection_valid_project_id()` が弾く（`default` / `loader` と同じ扱い）
 - 切り替え時は `leavingIntentionally` を立ててから遷移する。
   `beforeunload` は `addEventListener` で登録しているため
   `window.onbeforeunload = null` では解除できない
@@ -346,6 +370,13 @@ curl -sS -X POST http://127.0.0.1:8099/api/upload.php \
 
 確認済みのケース: 正常系 / 同名衝突（`_2` 付与）/ パストラバーサル（`../../etc` → `etc` に無害化）/
 非画像ファイルの拒否 / 超長ファイル名の切り詰め＋ハッシュ / 日本語備考の UTF-8 保存。
+
+備考のファイル名付与（2026-09-15 に確認済み）: 改行・禁止文字・前後空白の整形 /
+備考が空・禁止文字だけなら付かない / 備考込みの同名衝突で `_2` / `APPEND_NOTE = false` で付かない /
+`NOTE_MAX_LENGTH` での切り詰め / `MAX_LENGTH` 超過時に多バイト境界で切れてハッシュが付く /
+`SAVE_META` の JSON 名が画像名と揃う / `../../etc/passwd` → `....etcpasswd`。
+`SHOW_IN_SELECT` と `local.php` は `api/config.js.php` の `PROJECTS` を curl で見れば確認できる
+（`local.php` を作ったテストは**必ず消してから終わること**）。
 
 写真保存なしモード（`SAVE.MODE = 'text'`）は、検証用の `config/<ID>.php` を一時的に作って
 `-F 'image=@...'` を付けずに POST すれば確認できる（2026-09-10 に確認済み:
