@@ -330,6 +330,33 @@
   // 画像モードでは備考もファイル名に入るので、入力のたびにプレビューへ反映する
   el.noteInput.addEventListener('input', updateFilenamePreview);
 
+  /* ---------- 備考の保持（UI.KEEP_NOTE） ----------
+     iPhone ではスリープ中にタブが破棄され、復帰時にページが読み直されることがある。
+     そのとき備考が空に戻るのを防ぐため、sessionStorage に持っておく。
+     sessionStorage はタブを閉じれば消えるので、別の担当者には持ち越さない。
+     Safari のプライベートモードなどでは例外を投げるので、すべて try で包む。 */
+  const NOTE_STORAGE_KEY = 'inspection.note';
+  const keepNote = !!(CONFIG.UI && CONFIG.UI.KEEP_NOTE);
+
+  function restoreNote() {
+    if (!keepNote) return;
+    try {
+      const v = window.sessionStorage.getItem(NOTE_STORAGE_KEY);
+      if (v) el.noteInput.value = v;
+    } catch (e) { /* 使えない環境では何もしない */ }
+  }
+
+  function persistNote() {
+    if (!keepNote) return;
+    try {
+      const v = el.noteInput.value;
+      if (v) window.sessionStorage.setItem(NOTE_STORAGE_KEY, v);
+      else window.sessionStorage.removeItem(NOTE_STORAGE_KEY);
+    } catch (e) { /* 使えない環境では何もしない */ }
+  }
+
+  el.noteInput.addEventListener('input', persistNote);
+
   el.addManualBtn.addEventListener('click', () => {
     const v = window.prompt('スタックに追加する文字列を入力');
     if (v === null) return;
@@ -720,6 +747,7 @@
   async function init() {
     setupProjectSwitcher();
     el.noteInput.placeholder = CONFIG.UI.NOTE_PLACEHOLDER;
+    restoreNote();   // プレビューへの反映は後段の onStackChange([]) が行う
 
     // 写真保存なしモードは見た目で分かるようにする
     // （シャッターは静止画OCR用に残るので、押せること自体は変えない）
