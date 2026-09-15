@@ -225,6 +225,26 @@ body {
 .chip.is-off { color: #5b6675; text-decoration: line-through; }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
 
+/* 映像の右下に重ねる操作ボタン（ズーム / カメラ切替）。
+   対応端末でしか出ないので、既存の操作列（.camera-actions）は変えない。
+   z-index はガイド枠(3)より上、カメラメッセージ(5)より下。 */
+.camera-overlay-bottom {
+  position: absolute; right: 8px; bottom: 8px;
+  z-index: 4; display: flex; gap: 8px;
+}
+.stage-btn {
+  min-width: 44px; min-height: 44px; padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.25);
+  background: rgba(0,0,0,.55); color: #fff;
+  font-family: inherit; font-size: 14px; font-weight: 700;
+  backdrop-filter: blur(4px);
+  cursor: pointer;
+}
+.stage-btn:active { transform: scale(.95); }
+.stage-btn:disabled { opacity: .35; cursor: default; transform: none; }
+.stage-btn.is-active { border-color: var(--warn); color: var(--warn); }
+
 .camera-message {
   position: absolute; inset: 0; z-index: 5;
   display: flex; align-items: center; justify-content: center;

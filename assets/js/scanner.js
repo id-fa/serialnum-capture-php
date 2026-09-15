@@ -102,6 +102,7 @@
       this.stream = null;
       this.track = null;
       this.torchOn = false;
+      this.zoom = 1;            // 現在のズーム倍率（対応端末のみ意味を持つ）
 
       this.mode = 'idle';        // idle | live | still
       this.ocrWorker = null;
@@ -249,7 +250,15 @@
 
     /* ---------- カメラ ---------- */
 
-    async startCamera() {
+    /**
+     * @param {{deviceId?: string|null, zoom?: number}} [opts]
+     *   deviceId: 使うカメラ（省略時は FACING_MODE で端末に選ばせる）。
+     *             使えなければ FACING_MODE に落とし、戻り値の deviceFallback を true にする
+     *   zoom:     起動直後に適用するズーム倍率（対応端末のみ）
+     * @returns {Promise<{hasTorch: boolean, deviceFallback: boolean, zoom: object|null}>}
+     */
+    async startCamera(opts) {
+      opts = opts || {};
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         throw new Error(
           'このブラウザではカメラを利用できません。\nHTTPS(またはlocalhost)でアクセスしているか確認してください。'
@@ -259,25 +268,39 @@
       // 前回の描画状態を引きずらないよう、開始のたびに要素を作り直す
       this._recreateVideo();
 
-      const constraints = {
-        audio: false,
-        video: {
-          facingMode: { ideal: CONFIG.CAMERA.FACING_MODE },
-          width: { ideal: CONFIG.CAMERA.IDEAL_WIDTH },
-          height: { ideal: CONFIG.CAMERA.IDEAL_HEIGHT },
-        },
+      const size = {
+        width: { ideal: CONFIG.CAMERA.IDEAL_WIDTH },
+        height: { ideal: CONFIG.CAMERA.IDEAL_HEIGHT },
       };
+      const byFacing = Object.assign({ facingMode: { ideal: CONFIG.CAMERA.FACING_MODE } }, size);
 
-      let stream;
-      try {
-        stream = await navigator.mediaDevices.getUserMedia(constraints);
-      } catch (e) {
-        // 解像度指定で失敗する端末があるためフォールバック
-        log('fallback constraints', e && e.name);
-        stream = await navigator.mediaDevices.getUserMedia({
-          audio: false,
-          video: { facingMode: CONFIG.CAMERA.FACING_MODE },
-        });
+      let stream = null;
+      let deviceFallback = false;
+
+      // 指定カメラ（切替ボタンで選んだもの）。OS 更新などで無くなることがあるので、
+      // 失敗したら既定の選び方に落とす
+      if (opts.deviceId) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: false,
+            video: Object.assign({ deviceId: { exact: opts.deviceId } }, size),
+          });
+        } catch (e) {
+          log('deviceId failed; fallback to facingMode', e && e.name);
+          deviceFallback = true;
+        }
+      }
+      if (!stream) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: byFacing });
+        } catch (e) {
+          // 解像度指定で失敗する端末があるためフォールバック
+          log('fallback constraints', e && e.name);
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: false,
+            video: { facingMode: CONFIG.CAMERA.FACING_MODE },
+          });
+        }
       }
 
       this.stream = stream;
@@ -289,7 +312,95 @@
 
       log('camera started', this.video.videoWidth + 'x' + this.video.videoHeight);
       this.setMode('live');
-      return { hasTorch: this.hasTorch() };
+
+      // ズームは起動後に applyConstraints で掛ける（getUserMedia の制約には入れない。
+      // 非対応端末で OverconstrainedError になるため）
+      this.zoom = 1;
+      const zoomCap = this.zoomCapability();
+      if (zoomCap && typeof opts.zoom === 'number' && opts.zoom !== 1) {
+        await this.setZoom(opts.zoom);
+      }
+
+      return {
+        hasTorch: this.hasTorch(),
+        deviceFallback,
+        zoom: zoomCap ? { min: zoomCap.min, max: zoomCap.max, value: this.zoom } : null,
+      };
+    }
+
+    /* ---------- カメラの選択・ズーム ---------- */
+
+    /** track.getCapabilities() を安全に読む（未対応ブラウザは {}） */
+    _capabilities() {
+      if (!this.track || typeof this.track.getCapabilities !== 'function') return {};
+      try { return this.track.getCapabilities() || {}; } catch (e) { return {}; }
+    }
+
+    /** track.getSettings() を安全に読む */
+    _settings() {
+      if (!this.track || typeof this.track.getSettings !== 'function') return {};
+      try { return this.track.getSettings() || {}; } catch (e) { return {}; }
+    }
+
+    /**
+     * 切り替え候補のカメラ一覧（前面カメラはラベルで除く）。
+     * ラベルはカメラ許可後にしか入らないので、カメラ起動後に呼ぶこと。
+     * Galaxy は "camera2 0, facing back" のような名前で背面カメラを複数返す。
+     * @returns {Promise<Array<{deviceId: string, label: string}>>}
+     */
+    async listCameras() {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return [];
+      let devices;
+      try { devices = await navigator.mediaDevices.enumerateDevices(); } catch (e) { return []; }
+      const isFront = (label) => /front|user|前面|フロント|selfie/i.test(label);
+      return devices
+        .filter((d) => d.kind === 'videoinput' && d.deviceId)
+        .filter((d) => !isFront(d.label || ''))
+        .map((d) => ({ deviceId: d.deviceId, label: d.label || '' }));
+    }
+
+    /** いま使っているカメラの deviceId（取れなければ null） */
+    currentDeviceId() {
+      return this._settings().deviceId || null;
+    }
+
+    /** ズーム対応なら {min, max, step}、非対応なら null */
+    zoomCapability() {
+      const z = this._capabilities().zoom;
+      if (!z || typeof z.min !== 'number' || typeof z.max !== 'number' || z.max <= z.min) return null;
+      return { min: z.min, max: z.max, step: z.step || 0 };
+    }
+
+    /**
+     * ズーム倍率を設定する（端末の範囲に丸める）。
+     * @returns {Promise<number>} 実際に適用した倍率（非対応なら 1）
+     */
+    async setZoom(value) {
+      const cap = this.zoomCapability();
+      if (!cap) return 1;
+      const v = Math.max(cap.min, Math.min(cap.max, Number(value) || 1));
+      try {
+        await this.track.applyConstraints({ advanced: [{ zoom: v }] });
+        this.zoom = v;
+      } catch (e) {
+        log('zoom failed', e && e.name);
+      }
+      return this.zoom;
+    }
+
+    /** 診断パネル用: いまのカメラと端末の対応状況 */
+    cameraInfo() {
+      const s = this._settings();
+      const c = this._capabilities();
+      const range = (r) => (r && typeof r.min === 'number' ? r.min + '〜' + r.max : '-');
+      return {
+        deviceId: s.deviceId || null,
+        size: (s.width || this.video.videoWidth) + 'x' + (s.height || this.video.videoHeight),
+        zoom: c.zoom ? range(c.zoom) + ' (現在 ' + this.zoom + ')' : '非対応',
+        focusMode: Array.isArray(c.focusMode) && c.focusMode.length ? c.focusMode.join('/') : '非対応',
+        focusDistance: c.focusDistance ? range(c.focusDistance) : '非対応',
+        torch: c.torch ? '対応' : '非対応',
+      };
     }
 
     _waitForVideoSize() {
@@ -312,6 +423,7 @@
       }
       this.video.srcObject = null;
       this.torchOn = false;
+      this.zoom = 1;
       this.setMode('idle');
     }
 

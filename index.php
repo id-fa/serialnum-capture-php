@@ -67,6 +67,12 @@ function asset_url(string $path): string
         <span class="chip" id="ocrChip">OCR</span>
       </div>
 
+      <!-- 近接でピントが合わない端末向け。対応端末でカメラ起動中だけ表示される -->
+      <div class="camera-overlay-bottom">
+        <button type="button" class="stage-btn" id="zoomBtn" hidden aria-label="ズーム">1x</button>
+        <button type="button" class="stage-btn" id="switchCamBtn" hidden aria-label="カメラ切替">🔄</button>
+      </div>
+
       <div class="camera-message" id="cameraMessage" hidden></div>
     </div>
 

@@ -26,6 +26,8 @@
     startBtn: $('startBtn'),
     shutterBtn: $('shutterBtn'),
     torchBtn: $('torchBtn'),
+    zoomBtn: $('zoomBtn'),
+    switchCamBtn: $('switchCamBtn'),
 
     candidateList: $('candidateList'),
     candidateEmpty: $('candidateEmpty'),
@@ -370,6 +372,11 @@
      ============================================================ */
 
   function updateModeChip() {
+    // ズーム / カメラ切替は静止画のあいだは使えない（切り替えると撮影内容が消える）
+    const stageBtnOff = !state.cameraOn || state.captured;
+    el.zoomBtn.disabled = stageBtnOff;
+    el.switchCamBtn.disabled = stageBtnOff;
+
     if (!state.cameraOn) {
       el.modeChip.className = 'chip';
       el.modeChip.textContent = '停止中';
@@ -394,19 +401,120 @@
     el.ocrChip.classList.toggle('is-off', parts.length === 0);
   }
 
+  /* ---------- カメラの選択・ズーム（CAMERA.SWITCH_BUTTON / ZOOM_LEVELS） ----------
+     Android の一部 Galaxy はブラウザからマクロへ自動で切り替わらず、近づくと
+     ピントが合わない。近づかずにズームで枠を埋める／近接に強い背面カメラへ
+     切り替える、の2つを対応端末でだけ出す。選んだカメラと倍率は「その端末の癖」
+     なので localStorage に記憶し、次回の起動から使う。 */
+  const CAMERA_DEVICE_KEY = 'inspection.cameraDeviceId';
+  const CAMERA_ZOOM_KEY = 'inspection.cameraZoom';
+  const CAM = CONFIG.CAMERA || {};
+
+  function readPref(key) {
+    try { return window.localStorage.getItem(key); } catch (e) { return null; }
+  }
+  function writePref(key, value) {
+    try {
+      if (value === null || value === undefined || value === '') window.localStorage.removeItem(key);
+      else window.localStorage.setItem(key, String(value));
+    } catch (e) { /* 使えない環境では記憶しない */ }
+  }
+
+  /** 起動時に使うズーム倍率: 端末で選んだ値 > 設定の ZOOM */
+  function preferredZoom() {
+    const saved = parseFloat(readPref(CAMERA_ZOOM_KEY));
+    if (saved > 0) return saved;
+    const conf = Number(CAM.ZOOM);
+    return conf > 0 ? conf : 1;
+  }
+
+  function zoomLevels() {
+    const list = Array.isArray(CAM.ZOOM_LEVELS) ? CAM.ZOOM_LEVELS : [];
+    return list.map(Number).filter((v) => v > 0);
+  }
+
+  function updateZoomButton(zoomInfo) {
+    const levels = zoomLevels();
+    if (!zoomInfo || !levels.length) {
+      el.zoomBtn.hidden = true;
+      return;
+    }
+    const usable = levels.filter((v) => v >= zoomInfo.min && v <= zoomInfo.max);
+    if (usable.length < 2) {
+      el.zoomBtn.hidden = true;   // 切り替える先が無い
+      return;
+    }
+    const v = zoomInfo.value;
+    el.zoomBtn.textContent = (Number.isInteger(v) ? v : v.toFixed(1)) + 'x';
+    el.zoomBtn.classList.toggle('is-active', v !== 1);
+    el.zoomBtn.hidden = false;
+  }
+
+  el.zoomBtn.addEventListener('click', async () => {
+    if (!state.cameraOn || state.captured) return;
+    const cap = scanner.zoomCapability();
+    if (!cap) return;
+    const usable = zoomLevels().filter((v) => v >= cap.min && v <= cap.max);
+    if (!usable.length) return;
+    // いまの倍率より大きい次の段へ。無ければ先頭に戻る
+    const cur = scanner.zoom;
+    const next = usable.find((v) => v > cur + 1e-6) ?? usable[0];
+    const applied = await scanner.setZoom(next);
+    writePref(CAMERA_ZOOM_KEY, applied);
+    updateZoomButton({ min: cap.min, max: cap.max, value: applied });
+  });
+
+  async function updateSwitchButton() {
+    if (!CAM.SWITCH_BUTTON) {
+      el.switchCamBtn.hidden = true;
+      return;
+    }
+    const cams = await scanner.listCameras();
+    el.switchCamBtn.hidden = cams.length < 2;
+  }
+
+  el.switchCamBtn.addEventListener('click', async () => {
+    if (!state.cameraOn || state.captured) return;
+    const cams = await scanner.listCameras();
+    if (cams.length < 2) return;
+    const cur = scanner.currentDeviceId();
+    const idx = cams.findIndex((c) => c.deviceId === cur);
+    const next = cams[(idx + 1) % cams.length];
+    writePref(CAMERA_DEVICE_KEY, next.deviceId);
+
+    stopCamera();
+    await startCamera();
+    if (state.cameraOn) {
+      const pos = (cams.indexOf(next) + 1) + '/' + cams.length;
+      toast('カメラ ' + pos + (next.label ? '：' + next.label : ''));
+    }
+  });
+
   async function startCamera() {
     try {
       el.startBtn.disabled = true;
       showCameraMessage('カメラを起動しています...');
-      const info = await scanner.startCamera();
+      const info = await scanner.startCamera({
+        deviceId: readPref(CAMERA_DEVICE_KEY),
+        zoom: preferredZoom(),
+      });
       state.cameraOn = true;
       state.captured = false;
       showCameraMessage(null);
+
+      // 記憶していたカメラが使えなかったときは記憶を捨てて既定に戻す
+      if (info.deviceFallback) {
+        writePref(CAMERA_DEVICE_KEY, null);
+        toast('記憶したカメラが使えないため、既定のカメラで起動しました', 'error');
+      }
 
       scanner.layoutRoiGuide();
       scanner.startLoops();
 
       el.torchBtn.hidden = !info.hasTorch;
+      updateZoomButton(info.zoom);
+      updateSwitchButton();   // enumerateDevices は非同期。表示だけなので待たない
+      if (DEBUG_MODE) showCameraInfoInDebug();
       el.startBtn.querySelector('.btn__label').textContent = 'カメラ停止';
       el.startBtn.querySelector('.btn__icon').textContent = '■';
       el.shutterBtn.disabled = false;
@@ -443,6 +551,8 @@
     state.captured = false;
     el.stillCanvas.hidden = true;
     el.torchBtn.hidden = true;
+    el.zoomBtn.hidden = true;
+    el.switchCamBtn.hidden = true;
     el.startBtn.querySelector('.btn__label').textContent = 'カメラ開始';
     el.startBtn.querySelector('.btn__icon').textContent = '▶';
     el.shutterBtn.disabled = true;
@@ -636,6 +746,21 @@
   const DEBUG_MODE =
     CONFIG.DEBUG || /[?&]debug=1(&|$)/.test(location.search);
 
+  /** いまのカメラと端末の対応状況（ズーム / フォーカス / ライト）を1行にする */
+  function cameraInfoLines() {
+    if (!scanner || !state.cameraOn) return [];
+    const c = scanner.cameraInfo();
+    return [
+      'カメラ ' + c.size + ' / ズーム ' + c.zoom + ' / フォーカス ' + c.focusMode +
+      ' / 焦点距離 ' + c.focusDistance + ' / ライト ' + c.torch,
+    ];
+  }
+
+  /** カメラ起動直後（OCR がまだ走っていない）でも端末の対応状況が読めるようにする */
+  function showCameraInfoInDebug() {
+    el.debugLog.textContent = cameraInfoLines().concat(['（OCR はまだ実行されていません）']).join('\n');
+  }
+
   function renderDebug(info) {
     // OCRに渡した画像をそのまま表示する
     const cv = el.debugCanvas;
@@ -646,7 +771,7 @@
       cv.getContext('2d').drawImage(src, 0, 0);
     }
 
-    const lines = [];
+    const lines = cameraInfoLines();
     lines.push(
       '映像 ' + info.source.w + 'x' + info.source.h +
       ' / 切出し x' + info.roi.x + ' y' + info.roi.y +

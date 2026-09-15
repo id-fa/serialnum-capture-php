@@ -360,6 +360,30 @@ iOS Safari は MediaStream をネイティブレイヤーで描画しており�
 `index.php` の `asset_url()` が `?v=<filemtime>` を付けて配信する。
 自前の JS/CSS を `index.php` に足すときは、必ずこの関数を通すこと。
 
+### 19. 近接でピントが合わない Android 端末（ズーム / カメラ切替）
+
+Galaxy の一部は、ブラウザからは純正カメラアプリの「自動マクロ切り替え」が使えず、
+メインカメラの最短撮影距離より近づくとピントが合わない（iPhone は OS 側が
+超広角マクロへ切り替えるので問題ない）。対処として映像右下に2つのボタンを出す。
+
+- **ズーム**（`CAMERA.ZOOM_LEVELS`）: 近づかずに枠を埋める。`track.getCapabilities().zoom`
+  が取れる端末でだけ表示。**ズームは `getUserMedia` の制約に入れず**、起動後に
+  `applyConstraints({ advanced: [{ zoom }] })` で掛ける（非対応端末で
+  OverconstrainedError にしないため）
+- **カメラ切替**（`CAMERA.SWITCH_BUTTON`）: `enumerateDevices()` の背面カメラを順送りする。
+  前面はラベル（front / user / 前面 など）で除く。**ラベルは許可後にしか入らない**ので
+  一覧はカメラ起動後に取る。`deviceId: { exact }` で起動し、失敗したら FACING_MODE に
+  落として記憶を捨てる（`startCamera()` の戻り値 `deviceFallback`）
+- 選んだ倍率とカメラは `localStorage`（`inspection.cameraZoom` / `inspection.cameraDeviceId`）
+  に記憶する。端末固有の癖への対処なので、タブや日をまたいで残してよい
+- 静止画のあいだは両ボタンを無効にする（`updateModeChip()`）。切替はカメラ再起動になり
+  撮影内容が消えるため
+- `?debug=1` の診断パネル先頭に、ズーム範囲・focusMode・focusDistance・ライトの対応状況を出す。
+  実機でどの手が効くかはまずここを見る
+
+実機で未検証。ヘッドレス Chrome では `getUserMedia` / `enumerateDevices` を偽装して
+ボタンの出し入れ・ズーム段送り・切替・記憶・フォールバックの流れだけ確認済み。
+
 ## 外部ライブラリ
 
 CDN から読み込んでいる（`index.html` の `<script>` と `config.js` の `OCR.*_PATH`）。
