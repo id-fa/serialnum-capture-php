@@ -5,6 +5,16 @@
 require __DIR__ . '/config/loader.php';
 $config    = inspection_load_config(isset($_GET['p']) ? (string)$_GET['p'] : null);
 $projectId = (string)$config['PROJECT_ID'];
+
+// 自前の JS/CSS には更新時刻をクエリに付けて配信する。
+// iPhone Safari が古い app.js を使い続け、毎回取り直される設定（config.js.php は
+// no-store）と食い違う現象が実機で起きたため。ファイルを置き換えれば値が変わるので
+// 「置き換えれば即反映」の運用は変わらない。
+function asset_url(string $path): string
+{
+    $mtime = @filemtime(__DIR__ . '/' . $path);
+    return htmlspecialchars($path . '?v=' . ($mtime !== false ? $mtime : time()), ENT_QUOTES, 'UTF-8');
+}
 ?>
 <!DOCTYPE html>
 <html lang="ja">
@@ -17,7 +27,7 @@ $projectId = (string)$config['PROJECT_ID'];
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>検品ツール - <?= htmlspecialchars($config['PROJECT_LABEL'], ENT_QUOTES, 'UTF-8') ?></title>
-<link rel="stylesheet" href="assets/css/style.css">
+<link rel="stylesheet" href="<?= asset_url('assets/css/style.css') ?>">
 </head>
 <body>
 
@@ -148,8 +158,8 @@ $projectId = (string)$config['PROJECT_ID'];
 <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
 <!-- 設定はプロジェクトルートの config.php を JavaScript として配信している -->
 <script src="api/config.js.php?p=<?= rawurlencode($projectId) ?>"></script>
-<script src="assets/js/scanner.js"></script>
-<script src="assets/js/stack.js"></script>
-<script src="assets/js/app.js"></script>
+<script src="<?= asset_url('assets/js/scanner.js') ?>"></script>
+<script src="<?= asset_url('assets/js/stack.js') ?>"></script>
+<script src="<?= asset_url('assets/js/app.js') ?>"></script>
 </body>
 </html>

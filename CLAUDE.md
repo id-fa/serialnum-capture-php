@@ -351,6 +351,15 @@ iOS Safari は MediaStream をネイティブレイヤーで描画しており�
 実機でしか再現しないため、この対処の効果は**実機未検証**（ヘッドレス Chrome で
 要素の置き換え自体は確認済み）。
 
+### 18. 自前の JS/CSS には更新時刻のクエリを付ける（実際に踏んだ）
+
+`api/config.js.php` は `no-store` で毎回取り直されるが、`assets/` の JS/CSS には
+キャッシュ制御が無く、iPhone Safari が古い `app.js` を使い続けて
+「設定は最新、画面の処理だけ古い」状態になった（プルダウンの現在地表示が食い違った）。
+
+`index.php` の `asset_url()` が `?v=<filemtime>` を付けて配信する。
+自前の JS/CSS を `index.php` に足すときは、必ずこの関数を通すこと。
+
 ## 外部ライブラリ
 
 CDN から読み込んでいる（`index.html` の `<script>` と `config.js` の `OCR.*_PATH`）。
