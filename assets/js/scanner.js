@@ -123,18 +123,49 @@
       this.fullCanvas = document.createElement('canvas');
       this.fullCtx = this.fullCanvas.getContext('2d');
 
-      // iOS Safari は confirm() や全画面オーバーレイのあとで MediaStream の
-      // <video> を勝手に一時停止することがある（映像が静止したままになる）。
-      // 意図した停止（stopCamera）以外で止まったら再生し直す。
-      this.video.addEventListener('pause', () => {
-        if (this.mode === 'idle' || !this.stream || document.hidden) return;
-        log('video paused unexpectedly; play() again');
-        this.video.play().catch((e) => log('re-play failed', e && e.name));
-      });
+      this._bindVideoEvents(this.video);
 
       // 撮影済み静止画（送信用）
       this.capturedBlob = null;
       this.capturedDataUrl = null;
+    }
+
+    /**
+     * video 要素にイベントを登録する（要素を作り直すたびに呼ぶ）。
+     *
+     * iOS Safari は confirm() や全画面オーバーレイのあとで MediaStream の
+     * <video> を勝手に一時停止することがある（映像が静止したままになる）。
+     * 意図した停止（stopCamera）以外で止まったら再生し直す。
+     */
+    _bindVideoEvents(video) {
+      video.addEventListener('pause', () => {
+        if (this.video !== video) return;
+        if (this.mode === 'idle' || !this.stream || document.hidden) return;
+        log('video paused unexpectedly; play() again');
+        video.play().catch((e) => log('re-play failed', e && e.name));
+      });
+    }
+
+    /**
+     * <video> 要素を作り直す。
+     *
+     * iOS Safari はスリープ／ロック解除のあと、MediaStream を描画するネイティブ
+     * レイヤーの向き・サイズ情報を古いまま持ち越すことがあり、ライブ表示だけが
+     * 縦長に歪む（映像フレーム自体は正常で、撮影画像や読み取りには影響しない）。
+     * 同じ要素に新しいストリームを差してもレイヤーは使い回されるため
+     * カメラ再起動では直らず、要素ごと作り直すと直る（リロードと同じ効果）。
+     * 属性（id / playsinline / muted / autoplay）と DOM 上の位置はそのまま引き継ぐ。
+     */
+    _recreateVideo() {
+      const old = this.video;
+      if (!old || !old.parentNode) return;
+      old.srcObject = null;
+      const fresh = old.cloneNode(false);
+      // cloneNode は muted 属性を写すが、プロパティ側は既定値に戻ることがある
+      fresh.muted = true;
+      old.parentNode.replaceChild(fresh, old);
+      this.video = fresh;
+      this._bindVideoEvents(fresh);
     }
 
     /* ---------- 初期化 ---------- */
@@ -225,6 +256,8 @@
         );
       }
       this.stopCamera();
+      // 前回の描画状態を引きずらないよう、開始のたびに要素を作り直す
+      this._recreateVideo();
 
       const constraints = {
         audio: false,
