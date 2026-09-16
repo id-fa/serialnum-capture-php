@@ -69,9 +69,13 @@ function inspection_merge_config(array $base, array $override): array
             is_array($value)
             && isset($base[$key])
             && is_array($base[$key])
-            && !array_is_list($value)
             && !array_is_list($base[$key])
+            && ($value === [] || !array_is_list($value))
         ) {
+            // 空配列は PHP ではリスト扱いになるため、そのまま置き換えると
+            // 'SERVER' => [] のような書き方で土台のセクションごと消えてしまう
+            // （実際に MAX_STRINGS が消えて送信が全滅した）。
+            // 連想配列の土台に空配列を重ねたときは「何も上書きしない」とみなす
             $base[$key] = inspection_merge_config($base[$key], $value);
         } else {
             $base[$key] = $value;
