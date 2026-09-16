@@ -172,7 +172,7 @@ config/<ID>.php ────┘  └→ 保存側（api/upload.php が直接読�
 | `BARCODE.FORMATS` | CODE_128 / CODE_39 / EAN_13 など |
 | `QR.ENABLED` | QRコード読み取りの有効/無効 |
 | `SAVE.MODE` | `image`（既定・撮影画像を保存）/ `text`（写真を保存せず文字列だけ保存） |
-| `SAVE.TEXT_FORMAT` | `MODE = 'text'` のときの形式。`json`（備考も残る）/ `txt`（1行1文字列） |
+| `SAVE.TEXT_FORMAT` | `MODE = 'text'` のときの形式。`json`（備考も残る）/ `txt`（1行1文字列。備考は `APPEND_NOTE` でファイル名にだけ付く） |
 | `SAVE.TIMESTAMP_FORMAT` | `MODE = 'text'` のときのファイル名。PHP の `date()` 書式。既定 `Ymd-His` |
 | `SAVE.TIMEZONE` | 保存側で日時を作るタイムゾーン（`TIMESTAMP_FORMAT` のファイル名・同名時の日時サフィックス・`created_at`）。既定 `Asia/Tokyo`。php.ini の `date.timezone` に関係なくこの値で作る。無効な値なら `Asia/Tokyo` |
 | `CAPTURE.CROP_TO_VIEW` | `true`（既定）でカメラ読み取り部に写っている範囲だけを保存。`false` で映像全体 |
@@ -218,16 +218,17 @@ config/<ID>.php ────┘  └→ 保存側（api/upload.php が直接読�
 | `ALLOWED_CHARS` | ファイル名に使える文字。既定 `0-9A-Za-z._-`。これ以外は除去されます |
 | `SEPARATOR` | スタック文字列をつなぐ区切り文字。既定 `-` |
 | `MAX_LENGTH` | ファイル名の最大長（バイト数）。超過時は切り詰め + ハッシュ付与 |
-| `APPEND_NOTE` | `true`（既定）で、画像モードのファイル名の末尾に備考欄の内容を付ける。備考が空なら何も付かない |
+| `APPEND_NOTE` | `true`（既定）で、ファイル名の末尾に備考欄の内容を付ける（画像モード・写真保存なしモード共通）。備考が空なら何も付かない |
 | `NOTE_SEPARATOR` | スタック文字列と備考の間の区切り。既定 `_`（備考にハイフンが入ることがあるため `SEPARATOR` とは別） |
 | `NOTE_MAX_LENGTH` | ファイル名に含める備考の最大文字数。既定 50。0 で無制限 |
 
-#### 備考をファイル名に付ける（画像モード）
+#### 備考をファイル名に付ける
 
-`SAVE.MODE = 'image'` のとき、備考欄に入力した内容がファイル名の末尾に付きます。
+備考欄に入力した内容がファイル名の末尾に付きます。画像モードでも写真保存なしモードでも同じです。
 
 ```
-スタック: AB123, CD456  /  備考: 山田 太郎   →  AB123-CD456_山田 太郎.jpg
+画像モード        スタック: AB123, CD456  /  備考: 山田 太郎   →  AB123-CD456_山田 太郎.jpg
+写真保存なしモード 送信時刻: 2026-09-10 14:00:19 / 備考: 山田 太郎 →  20260910-140019_山田 太郎.json
 ```
 
 備考は日本語を残すため `ALLOWED_CHARS` では絞らず、次の規則で整えます
@@ -238,7 +239,8 @@ config/<ID>.php ────┘  └→ 保存側（api/upload.php が直接読�
 - 末尾のドット・空白を除去
 - `NOTE_MAX_LENGTH` 文字を超えた分は切り捨て
 
-写真保存なしモード（`SAVE.MODE = 'text'`）では従来どおりファイル名はタイムスタンプで、備考は JSON の中に入ります。
+写真保存なしモード（`SAVE.MODE = 'text'`）ではタイムスタンプの後ろに付きます（`TEXT_FORMAT = 'json'` なら JSON の中にも入ります）。
+`APPEND_NOTE = false` にすると、どちらのモードでもファイル名には付きません。
 
 ### サーバー専用: `SERVER`
 
@@ -446,8 +448,9 @@ storage/
 ```
 storage/
 └── PRJ-0001/
-    ├── 20260910-140019.json     TEXT_FORMAT = 'json' のとき
-    └── 20260910-140032.txt      TEXT_FORMAT = 'txt' のとき
+    ├── 20260910-140019.json          TEXT_FORMAT = 'json' のとき
+    ├── 20260910-140032.txt           TEXT_FORMAT = 'txt' のとき
+    └── 20260910-140045_山田.json     備考「山田」を入力したとき（FILENAME.APPEND_NOTE = true）
 ```
 
 `*.json` の中身:

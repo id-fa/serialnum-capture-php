@@ -190,7 +190,7 @@
   }
 
   /**
-   * 備考をファイル名に付けられる形へ整える（画像モードで FILENAME.APPEND_NOTE のとき）。
+   * 備考をファイル名に付けられる形へ整える（FILENAME.APPEND_NOTE のとき。両モード共通）。
    *
    * 備考は日本語を残したいので ALLOWED_CHARS では絞らず、
    * 「Windows でファイル名に使えない文字を除く」規則で整える。
@@ -215,16 +215,21 @@
     return t.replace(NOTE_TAIL, '');
   }
 
+  /** 備考をファイル名の末尾に付ける（APPEND_NOTE が有効で備考が空でないとき）。両モード共通 */
+  function appendNoteToBaseName(name) {
+    if (!CONFIG.FILENAME.APPEND_NOTE) return name;
+    const note = sanitizeNoteForFilename(el.noteInput.value || '');
+    if (!note) return name;
+    return name + (CONFIG.FILENAME.NOTE_SEPARATOR ?? '_') + note;
+  }
+
   /** 画像モードで保存されるファイル名（拡張子なし）。保存側と同じ組み立て */
   function buildImageBaseName(texts) {
     const name = texts
       .map(sanitizeForFilename)
       .filter(Boolean)
       .join(CONFIG.FILENAME.SEPARATOR) || 'noname';
-    if (!CONFIG.FILENAME.APPEND_NOTE) return name;
-    const note = sanitizeNoteForFilename(el.noteInput.value || '');
-    if (!note) return name;
-    return name + (CONFIG.FILENAME.NOTE_SEPARATOR ?? '_') + note;
+    return appendNoteToBaseName(name);
   }
 
   /* ============================================================
@@ -313,8 +318,9 @@
       return;
     }
     if (TEXT_ONLY) {
-      // 写真保存なしモードのファイル名は送信時のタイムスタンプ（サーバー側で決まる）
-      el.filenameValue.textContent = '<送信時刻>.' + TEXT_EXT;
+      // 写真保存なしモードのファイル名は送信時のタイムスタンプ（サーバー側で決まる）。
+      // 備考は画像モードと同じ規則で末尾に付く
+      el.filenameValue.textContent = appendNoteToBaseName('<送信時刻>') + '.' + TEXT_EXT;
     } else {
       el.filenameValue.textContent = buildImageBaseName(texts) + '.jpg';
     }

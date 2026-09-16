@@ -65,14 +65,17 @@ config/<ID>.php ────┘              └→ api/upload.php    → $CONFI
 - `FILENAME.ALLOWED_CHARS` / `SEPARATOR` は**両側が同じ値を使う**。
   `app.js` の `sanitizeForFilename()` と `api/upload.php` の `sanitize_token()` は
   どちらもこの設定から正規表現を組み立てるので、ルールがズレることはない
-- 画像モードでは `FILENAME.APPEND_NOTE`（既定 true）で**備考がファイル名の末尾に付く**
-  （`<スタック連結>` + `NOTE_SEPARATOR` + `<備考>`）。備考は日本語を残すため
+- `FILENAME.APPEND_NOTE`（既定 true）で**備考がファイル名の末尾に付く**
+  （`<スタック連結>` または `<タイムスタンプ>` + `NOTE_SEPARATOR` + `<備考>`）。
+  **画像モード・写真保存なしモードの両方で効く**（2026-09-16 に text モードにも拡張）。備考は日本語を残すため
   `ALLOWED_CHARS` では絞らず、「Windows で使えない文字 `\ / : * ? " < > |` と制御文字を除去 /
   前後の空白・改行をトリム / 途中の改行は空白1つに置換 / 末尾のドット・空白を除去 /
   `NOTE_MAX_LENGTH` 文字で切り詰め」という別規則で整える。
   `app.js` の `sanitizeNoteForFilename()` と `api/upload.php` の `sanitize_note_for_filename()`
   は**手順を1対1で揃えてある**ので、片方だけ変えないこと。
-  `/` `\` が消えるので備考でフォルダの外には出られない。写真保存なしモードには付かない
+  `/` `\` が消えるので備考でフォルダの外には出られない。
+  `api/upload.php` では備考付与と `MAX_LENGTH` の切り詰めをモード分岐の**外**に置いてある。
+  モード別の分岐の中へ戻さないこと
 - `FILENAME.MAX_LENGTH` の切り詰めは `mb_strcut()` で行う（備考の多バイト文字の途中で
   切ると不正な UTF-8 のファイル名になるため）。`substr()` に戻さないこと
 
@@ -144,7 +147,10 @@ config/<ID>.php ────┘              └→ api/upload.php    → $CONFI
 - 同名時の扱いは `resolve_save_path()` に集約した（画像モードと共通）。
   ただし `'text'` では `ON_CONFLICT = 'timestamp'` を連番に読み替える
   （名前が既にタイムスタンプなので、同じ日時を二重に付けても区別できない）
-- `TEXT_FORMAT = 'txt'` には**備考が入らない**（1行1文字列だけ）。備考も残すなら `'json'` にする
+- `TEXT_FORMAT = 'txt'` の**中身には備考が入らない**（1行1文字列だけ）。備考も残すなら `'json'` にする
+  （`APPEND_NOTE` が有効ならファイル名の末尾には付くので、名前で区別はできる）
+- ファイル名は `<タイムスタンプ>` + `NOTE_SEPARATOR` + `<備考>` になる（`APPEND_NOTE` 時）。
+  画面のプレビューは `<送信時刻>_<備考>.json` のように出す（`app.js` の `appendNoteToBaseName()`）
 
 ### 2. ROI の座標変換を壊さない
 

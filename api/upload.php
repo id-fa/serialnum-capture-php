@@ -10,8 +10,8 @@
  *
  * 保存先（設定の SAVE.MODE で決まる）
  *   'image' : storage/<project_id>/<strings をハイフン連結>.jpg
- *             FILENAME.APPEND_NOTE が有効なら末尾に「_<備考>」が付く
  *   'text'  : storage/<project_id>/<タイムスタンプ>.json （または .txt）
+ *   どちらも FILENAME.APPEND_NOTE が有効なら末尾に「_<備考>」が付く
  */
 
 declare(strict_types=1);
@@ -92,7 +92,7 @@ function sanitize_token(string $s, string $allowedChars): string
 }
 
 /**
- * 備考をファイル名に付けられる形へ整える（画像モードで FILENAME.APPEND_NOTE のとき）。
+ * 備考をファイル名に付けられる形へ整える（FILENAME.APPEND_NOTE のとき。両モード共通）。
  *
  * 備考は日本語を残したいので ALLOWED_CHARS では絞らず、
  * 「Windows でファイル名に使えない文字を除く」規則で整える。
@@ -282,22 +282,23 @@ if ($saveMode === 'text') {
     if ($base === '') {
         $base = 'noname-' . date('Ymd-His');
     }
+}
 
-    // 備考をファイル名の末尾に付ける（設定で有効なとき・備考が空でないとき）
-    if (!empty($FILENAME['APPEND_NOTE'])) {
-        $noteToken = sanitize_note_for_filename($note, (int)($FILENAME['NOTE_MAX_LENGTH'] ?? 0));
-        if ($noteToken !== '') {
-            $base .= (string)($FILENAME['NOTE_SEPARATOR'] ?? '_') . $noteToken;
-        }
+// 備考をファイル名の末尾に付ける（設定で有効なとき・備考が空でないとき）。
+// 画像モード・写真保存なしモードのどちらでも付く（<タイムスタンプ>_<備考>.json など）。
+if (!empty($FILENAME['APPEND_NOTE'])) {
+    $noteToken = sanitize_note_for_filename($note, (int)($FILENAME['NOTE_MAX_LENGTH'] ?? 0));
+    if ($noteToken !== '') {
+        $base .= (string)($FILENAME['NOTE_SEPARATOR'] ?? '_') . $noteToken;
     }
+}
 
-    // 長すぎる場合は切り詰めて衝突しないようハッシュを付ける。
-    // 備考に日本語が入ると1文字が複数バイトになるので、文字の途中で切らないよう mb_strcut を使う
-    $maxLen = (int)$FILENAME['MAX_LENGTH'];
-    if (strlen($base) > $maxLen) {
-        $hash = substr(md5($base), 0, 8);
-        $base = rtrim(mb_strcut($base, 0, $maxLen - 9, 'UTF-8'), ' .') . '_' . $hash;
-    }
+// 長すぎる場合は切り詰めて衝突しないようハッシュを付ける。
+// 備考に日本語が入ると1文字が複数バイトになるので、文字の途中で切らないよう mb_strcut を使う
+$maxLen = (int)$FILENAME['MAX_LENGTH'];
+if (strlen($base) > $maxLen) {
+    $hash = substr(md5($base), 0, 8);
+    $base = rtrim(mb_strcut($base, 0, $maxLen - 9, 'UTF-8'), ' .') . '_' . $hash;
 }
 
 [$filename, $path] = resolve_save_path($dir, $base, (string)$ext, $onConflict);
@@ -310,7 +311,8 @@ if ($saveMode === 'text') {
 if ($saveMode === 'text') {
     if ($textFormat === 'txt') {
         // 1行1文字列。メモ帳でそのまま開けるよう改行は CRLF にする。
-        // ※ この形式には備考が入らない（備考も残すなら TEXT_FORMAT を 'json' にする）
+        // ※ この形式の中身には備考が入らない（備考も残すなら TEXT_FORMAT を 'json' にするか、
+        //    APPEND_NOTE でファイル名に付ける）
         $body = implode("\r\n", $strings) . "\r\n";
     } else {
         $body = json_encode([

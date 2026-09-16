@@ -136,7 +136,7 @@ function asset_url(string $path): string
   <!-- ===== 備考欄 ===== -->
   <section class="panel">
     <div class="panel__head">
-      <h2 class="panel__title">備考</h2>
+      <h2 class="panel__title">備考・作業者</h2>
     </div>
     <textarea id="noteInput" class="note-input" rows="2"></textarea>
   </section>
