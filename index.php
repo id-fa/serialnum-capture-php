@@ -95,9 +95,12 @@ function asset_url(string $path): string
     <div class="panel__head">
       <h2 class="panel__title">読み取り結果</h2>
       <span class="panel__count" id="candidateCount">0</span>
-      <button type="button" class="linkbtn" id="clearCandidatesBtn">候補を消す</button>
+      <div class="panel__actions">
+        <button type="button" class="linkbtn" id="stackAllBtn">全てスタックに移す</button>
+        <button type="button" class="linkbtn" id="clearCandidatesBtn">候補を消す</button>
+      </div>
     </div>
-    <p class="panel__hint">タップでスタックに追加します</p>
+    <p class="panel__hint">タップでスタックに追加、✕ で候補から消します</p>
     <div class="candidate-list" id="candidateList">
       <p class="empty-note" id="candidateEmpty">まだ何も読み取れていません</p>
     </div>

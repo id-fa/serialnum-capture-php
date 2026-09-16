@@ -41,6 +41,28 @@
       return 'added';
     }
 
+    /**
+     * 複数の文字列を順番どおりに追加する。空文字と既にあるものは飛ばす。
+     * 描画と onChange は 1 回だけ。
+     * @param {string[]} texts
+     * @returns {number} 追加できた件数
+     */
+    addMany(texts) {
+      let added = 0;
+      for (const raw of texts || []) {
+        const t = String(raw || '').trim();
+        if (!t) continue;
+        if (this.items.some((it) => it.text === t)) continue;
+        this.items.push({ id: 'sk' + ++this.seq, text: t, isNew: true });
+        added++;
+      }
+      if (added > 0) {
+        this.render();
+        this.onChange(this.getTexts());
+      }
+      return added;
+    }
+
     remove(id) {
       const i = this.items.findIndex((it) => it.id === id);
       if (i < 0) return;

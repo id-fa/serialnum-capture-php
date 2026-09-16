@@ -33,6 +33,7 @@
     candidateEmpty: $('candidateEmpty'),
     candidateCount: $('candidateCount'),
     clearCandidatesBtn: $('clearCandidatesBtn'),
+    stackAllBtn: $('stackAllBtn'),
 
     stackList: $('stackList'),
     stackEmpty: $('stackEmpty'),
@@ -269,10 +270,17 @@
     const list = Array.from(state.candidates.values()).reverse();
 
     for (const c of list) {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'candidate' + (stack.has(c.text) ? ' is-stacked' : '');
-      btn.dataset.text = c.text;
+      // チップ本体（タップでスタックへ）と ✕（候補から消す）の 2 ボタン構成。
+      // button の入れ子は不正なので、外側は div にしている
+      const chip = document.createElement('div');
+      chip.className = 'candidate' + (stack.has(c.text) ? ' is-stacked' : '');
+      chip.dataset.text = c.text;
+
+      const addBtn = document.createElement('button');
+      addBtn.type = 'button';
+      addBtn.className = 'candidate__add';
+      addBtn.dataset.action = 'add';
+      addBtn.setAttribute('aria-label', c.text + ' をスタックに追加');
 
       const src = document.createElement('span');
       src.className = 'candidate__src candidate__src--' + (SRC_CLASS[c.source] || 'ocr');
@@ -282,20 +290,64 @@
       label.className = 'candidate__text';
       label.textContent = c.text;
 
-      btn.append(src, label);
-      frag.appendChild(btn);
+      addBtn.append(src, label);
+
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'candidate__del';
+      del.dataset.action = 'remove';
+      del.textContent = '✕';
+      del.setAttribute('aria-label', c.text + ' を候補から消す');
+
+      chip.append(addBtn, del);
+      frag.appendChild(chip);
     }
     el.candidateList.appendChild(frag);
   }
 
+  /**
+   * 候補を 1 件だけ消す。
+   * scanner.emitted は残す（誤読を消した直後に同じ文字列が再検出されて
+   * 戻ってくるのを防ぐため）。読み直したいときは「候補を消す」で全部消す。
+   */
+  function removeCandidate(text) {
+    if (!state.candidates.delete(text)) return;
+    renderCandidates();
+  }
+
   el.candidateList.addEventListener('click', (e) => {
-    const btn = e.target.closest('.candidate');
+    const btn = e.target.closest('[data-action]');
     if (!btn) return;
-    const text = btn.dataset.text;
+    const chip = btn.closest('.candidate');
+    if (!chip) return;
+    const text = chip.dataset.text;
+
+    if (btn.dataset.action === 'remove') {
+      removeCandidate(text);
+      return;
+    }
     const res = stack.add(text);
     if (res === 'duplicated') {
       toast('すでにスタックにあります');
     } else {
+      renderCandidates();
+    }
+  });
+
+  // 候補を認識順（古いものから）でまとめてスタックへ。
+  // 画面の並びは新しいものが上だが、state.candidates の挿入順が認識順なのでそのまま使う。
+  // スタック済みのものは飛ばす（stack.addMany が重複を捨てる）
+  el.stackAllBtn.addEventListener('click', () => {
+    const texts = Array.from(state.candidates.keys());
+    if (!texts.length) {
+      toast('候補がありません');
+      return;
+    }
+    const added = stack.addMany(texts);
+    if (added === 0) {
+      toast('すべてスタック済みです');
+    } else {
+      toast(added + '件をスタックに移しました');
       renderCandidates();
     }
   });

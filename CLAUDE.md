@@ -186,6 +186,11 @@ config/<ID>.php ────┘              └→ api/upload.php    → $CONFI
 「同じ文字列が N 回連続で読めたら採用」という手ブレ対策をしている。
 クリア操作では `resetDetections()` を呼んで両方を空にする。
 
+候補の `✕`（1件削除）では **`emitted` を消さない**。消した直後に同じ誤読が再検出されて
+戻ってくるのを防ぐためで、読み直したいときは「候補を消す」を使う。
+候補チップは `div.candidate` の中に `button.candidate__add` と `button.candidate__del` を並べた
+2ボタン構成（button の入れ子は不正なので外枠は div）。`data-action` で振り分けている。
+
 ### 6. `hidden` 属性と `display` の競合（実際に踏んだ）
 
 `.blocker { display: flex }` のように作者スタイルで `display` を指定すると、
