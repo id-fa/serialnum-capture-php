@@ -97,10 +97,10 @@ function asset_url(string $path): string
       <span class="panel__count" id="candidateCount">0</span>
       <div class="panel__actions">
         <button type="button" class="linkbtn" id="stackAllBtn">全てスタックに移す</button>
-        <button type="button" class="linkbtn" id="clearCandidatesBtn">候補を消す</button>
+        <button type="button" class="linkbtn" id="clearCandidatesBtn">リセット</button>
       </div>
     </div>
-    <p class="panel__hint">タップでスタックに追加、✕ で候補から消します</p>
+    <p class="panel__hint">タップでスタックに追加、✕ で候補から消します<br>一度消した文字パターンはリセットを押すまで再表示されません</p>
     <div class="candidate-list" id="candidateList">
       <p class="empty-note" id="candidateEmpty">まだ何も読み取れていません</p>
     </div>

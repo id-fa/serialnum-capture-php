@@ -308,7 +308,7 @@
   /**
    * 候補を 1 件だけ消す。
    * scanner.emitted は残す（誤読を消した直後に同じ文字列が再検出されて
-   * 戻ってくるのを防ぐため）。読み直したいときは「候補を消す」で全部消す。
+   * 戻ってくるのを防ぐため）。読み直したいときは「リセット」で全部消す。
    */
   function removeCandidate(text) {
     if (!state.candidates.delete(text)) return;
